@@ -85,7 +85,7 @@ test: ## Run unit tests (no database required)
 
 test-all: start ## Run all tests including database tests
 	@echo "$(GREEN)Running all tests with database...$(NC)"
-	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" go test -v -race -timeout $(TEST_TIMEOUT) ./...
+	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" go test -v -cover -race -timeout $(TEST_TIMEOUT) ./...
 
 # Run tests with coverage
 test-coverage: start ## Run tests with coverage report

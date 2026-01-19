@@ -7,8 +7,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/fernandezvara/dbkit"
 	_ "github.com/uptrace/bun/driver/pgdriver"
+
+	"github.com/fernandezvara/dbkit"
 )
 
 // isDatabaseAvailable checks if the test database is available
