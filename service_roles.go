@@ -3,8 +3,9 @@ package rolekit
 import (
 	"context"
 
-	"github.com/fernandezvara/dbkit"
 	"github.com/uptrace/bun"
+
+	"github.com/fernandezvara/dbkit"
 )
 
 // ============================================================================

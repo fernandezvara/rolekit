@@ -33,6 +33,9 @@ endif
 # Default test timeout
 TEST_TIMEOUT := 5m
 
+# Database URL for testing
+TEST_DATABASE_URL := postgres://postgres:password@localhost:5418/rolekit_test?sslmode=disable
+
 # Colors for output
 GREEN := \033[0;32m
 YELLOW := \033[0;33m
@@ -50,32 +53,52 @@ help: ## Show this help message
 	@echo "Targets:"
 	@echo "  help                 Show this help message"
 	@echo "  detect-runtime       Show runtime and compose tool"
+	@echo "  start                Start PostgreSQL database"
+	@echo "  stop                 Stop PostgreSQL database"
 	@echo "  test                 Run unit tests (no database)"
+	@echo "  test-all             Run all tests including database tests"
 	@echo "  test-coverage        Run tests with coverage"
 	@echo "  bench                Run benchmark tests"
 	@echo "  lint                 Run golangci-lint"
+	@echo "  clean                Clean up containers and volumes"
 
 detect-runtime: ## Show detected container runtime and compose tool
 	@echo "Container runtime: $(CONTAINER_RUNTIME)"
 	@echo "Compose command: $(COMPOSE_CMD)"
 
+start: ## Start PostgreSQL database for testing
+	@echo "$(GREEN)Starting PostgreSQL 18...$(NC)"
+	$(COMPOSE_CMD) -f docker-compose.yml up -d
+	@echo "$(YELLOW)Waiting for database to be ready...$(NC)"
+	@timeout 60 bash -c 'until $$(CONTAINER_RUNTIME) exec rolekit-postgres-18 pg_isready -U postgres; do sleep 1; done'
+	@echo "$(GREEN)PostgreSQL is ready!$(NC)"
+	@echo "$(YELLOW)Database URL: $(TEST_DATABASE_URL)$(NC)"
+
+stop: ## Stop PostgreSQL database
+	@echo "$(YELLOW)Stopping PostgreSQL...$(NC)"
+	$(COMPOSE_CMD) -f docker-compose.yml down
+	@echo "$(GREEN)PostgreSQL stopped.$(NC)"
+
 test: ## Run unit tests (no database required)
 	@echo "$(GREEN)Running unit tests...$(NC)"
 	go test -v -cover -race -timeout $(TEST_TIMEOUT) ./...
 
+test-all: start ## Run all tests including database tests
+	@echo "$(GREEN)Running all tests with database...$(NC)"
+	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" go test -v -race -timeout $(TEST_TIMEOUT) ./...
 
 # Run tests with coverage
 test-coverage: start ## Run tests with coverage report
 	@echo "$(GREEN)Running tests with coverage...$(NC)"
-	TEST_DATABASE_URL="postgres://postgres:password@localhost:5417/dbkit_test?sslmode=disable" \
+	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" \
 		go test -v -race -coverprofile=coverage.out -timeout $(TEST_TIMEOUT) ./...
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "$(GREEN)Coverage report generated: coverage.html$(NC)"
 
 # Benchmark tests
 bench: start ## Run benchmark tests
-	@echo "$(GREEN)Running benchmarks against PostgreSQL $(PG_17_VERSION)...$(NC)"
-	TEST_DATABASE_URL="postgres://postgres:password@localhost:5417/dbkit_test?sslmode=disable" \
+	@echo "$(GREEN)Running benchmarks against PostgreSQL...$(NC)"
+	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" \
 		go test -v -bench=. -benchmem -timeout $(TEST_TIMEOUT) ./...
 
 # Lint code with golangci-lint
@@ -84,9 +107,14 @@ lint: ## Run golangci-lint
 	@if ! command -v golangci-lint >/dev/null 2>&1; then \
 		echo "$(RED)Error: golangci-lint is not installed.$(NC)"; \
 		echo "$(YELLOW)Please install golangci-lint from: https://golangci-lint.run/docs/welcome/install/local/$(NC)"; \
-		echo "$(YELLOW)Or run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest$(NC)"; \
+		echo "$(YELLOW)Or run: go install github.com/golangci/golang-lint/v2/cmd/golangci-lint@latest$(NC)"; \
 		exit 1; \
 	fi
 	@echo "$(GREEN)Running golangci-lint...$(NC)"
-	golangci-lint run
+	golangci-lint run ./...
 	@echo "$(GREEN)Linting complete!$(NC)"
+
+clean: ## Clean up containers and volumes
+	@echo "$(YELLOW)Cleaning up containers and volumes...$(NC)"
+	$(COMPOSE_CMD) -f docker-compose.yml down -v
+	@echo "$(GREEN)Cleanup complete.$(NC)"
