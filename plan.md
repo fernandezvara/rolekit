@@ -375,6 +375,158 @@ This plan ensures RoleKit properly utilizes the updated `github.com/fernandezvar
 
 ---
 
+### Story 16: Convert Sample Application to Comprehensive Integration Tests
+
+**As a** developer maintaining RoleKit  
+**I want to** convert the sample application into comprehensive integration tests with a real database  
+**So that** all RoleKit features are properly tested with database interactions, improving test coverage and reliability
+
+**Acceptance Criteria:**
+
+1. Convert all sample-app demo functions into proper test functions
+2. Set up test database infrastructure using `make start` command
+3. Create conditional test execution - run database-dependent tests only when database is available
+4. Create integration tests for all major RoleKit features
+5. Test role assignments, permissions, transactions, health monitoring, connection pooling, migrations
+6. Include performance benchmarks and load testing scenarios
+7. Ensure all tests can run in CI/CD pipeline with proper test database setup
+8. Maintain backward compatibility - tests without database should still run
+
+**Implementation Tasks:**
+
+1. **Create test database setup** - Use `make start` to set up PostgreSQL test database with proper configuration
+2. **Add database availability check** - Create helper function to detect if database is running
+3. **Convert demo functions to tests** - Transform all test\* functions in sample-app into proper Go tests
+4. **Implement conditional test execution** - Skip database-dependent tests if database not available
+5. **Add test utilities** - Create helper functions for test database setup and teardown
+6. **Create integration test suite** - Organize tests by feature area (roles, transactions, health, etc.)
+7. **Add performance benchmarks** - Convert performance demos into Go benchmark tests
+8. **Ensure CI/CD compatibility** - Make tests runnable in automated environments with database setup
+9. **Update Makefile** - Ensure `make start` properly configures test database
+10. \*\*Ensure 'make test' and 'make lint' passes without errors before start with other task
+
+---
+
+### Story 17: Add Database-Backed Unit Tests for Core Functionality
+
+**As a** developer maintaining RoleKit  
+**I want to** have unit tests that use a real database for all core functionality  
+**So that** we can verify database interactions work correctly and catch regressions early
+
+**Acceptance Criteria:**
+
+1. Unit tests for all Service methods with real database
+2. Test all role assignment and revocation scenarios
+3. Test permission checking and validation
+4. Test transaction commit/rollback scenarios
+5. Test error handling and edge cases
+6. Test concurrent access patterns
+7. Achieve >90% test coverage for all database operations
+8. Use `make start` for database setup with conditional test execution
+
+**Implementation Tasks:**
+
+1. **Create database test utilities** - Helper functions for setting up test data and scenarios
+2. **Add database availability check** - Reuse helper function from Story 16 to detect database status
+3. **Write role assignment tests** - Test all Assign, Revoke, and bulk operation methods
+4. **Write permission tests** - Test all permission checking and validation methods
+5. **Write transaction tests** - Test transaction scenarios and error handling
+6. **Write query tests** - Test all data retrieval and counting methods
+7. **Write health and monitoring tests** - Test health checks and pool management
+8. **Implement conditional test execution** - Skip tests if database not available
+9. \*\*Ensure 'make test' and 'make lint' passes without errors before start with other task
+
+---
+
+### Story 18: Add Performance and Load Testing Suite
+
+**As a** developer maintaining RoleKit  
+**I want to** have performance and load tests to verify RoleKit performs well under stress  
+**So that** we can identify performance bottlenecks and ensure scalability
+
+**Acceptance Criteria:**
+
+1. Performance benchmarks for all major operations
+2. Load testing for concurrent role assignments
+3. Connection pool performance testing
+4. Transaction overhead measurement
+5. Memory usage profiling
+6. Performance regression detection
+7. Use `make start` for database setup with conditional test execution
+
+**Implementation Tasks:**
+
+1. **Create benchmark suite** - Go benchmark tests for all major operations
+2. **Add load testing** - Concurrent access patterns and stress testing
+3. **Profile memory usage** - Memory allocation and garbage collection testing
+4. **Measure transaction overhead** - Benchmark transaction vs non-transaction operations
+5. **Test connection pooling** - Benchmark different pool configurations
+6. **Add performance regression tests** - Automated performance monitoring
+7. **Add database availability check** - Skip benchmarks if database not available
+8. \*\*Ensure 'make test' and 'make lint' passes without errors before start with other task
+
+---
+
+### Story 19: Add Edge Case and Error Scenario Testing
+
+**As a** developer maintaining RoleKit  
+**I want to** comprehensive tests for edge cases and error scenarios  
+**So that** the library handles unexpected situations gracefully
+
+**Acceptance Criteria:**
+
+1. Test all error paths and error handling
+2. Test database connection failures and recovery
+3. Test transaction deadlocks and timeouts
+4. Test invalid input handling
+5. Test boundary conditions and limits
+6. Test concurrent modification scenarios
+7. Use `make start` for database setup with conditional test execution
+
+**Implementation Tasks:**
+
+1. **Create error scenario tests** - Test all error conditions and recovery paths
+2. **Add failure injection** - Simulate database failures and test recovery
+3. **Test edge cases** - Boundary conditions, empty inputs, maximum values
+4. **Test concurrency issues** - Race conditions, deadlocks, lost updates
+5. **Test data integrity** - Verify data consistency under various conditions
+6. **Add chaos testing** - Random failures and recovery scenarios
+7. **Add database availability check** - Skip error scenario tests if database not available
+8. \*\*Ensure 'make test' and 'make lint' passes without errors before start with other task
+
+---
+
+### Story 20: Set Up GitHub Actions for Database-Backed Testing
+
+**As a** developer maintaining RoleKit  
+**I want to** have GitHub Actions that automatically run tests with a real database  
+**So that** all database-dependent tests are executed in CI/CD pipeline and regressions are caught early
+
+**Acceptance Criteria:**
+
+1. Create GitHub Actions workflow that sets up PostgreSQL 18 database
+2. Run `make start` to initialize test database before running tests
+3. Execute full test suite including database-dependent tests
+4. Run performance benchmarks in CI pipeline
+5. Generate test coverage reports for database tests
+6. Handle database setup failures gracefully
+7. Support both quick tests (without database) and full tests (with database)
+
+**Implementation Tasks:**
+
+1. **Create GitHub Actions workflow** - Set up PostgreSQL service and test environment
+2. **Configure database service** - Use Docker to run PostgreSQL 18 in Actions
+3. **Add database initialization** - Run `make start` before test execution
+4. **Implement test matrix** - Support different PostgreSQL versions if needed
+5. **Add test artifacts** - Save test results and coverage reports
+6. **Configure test caching** - Cache dependencies for faster builds
+7. **Add conditional workflows** - Support quick PR checks vs full branch tests
+8. **Test workflow locally** - Use act or similar tool to validate workflow
+9. **Ensure workflow passes** - Verify all tests run successfully in CI
+10. \*\*Ensure 'make test' and 'make lint' passes without errors before start with other task
+
+---
+
 ## Implementation Rules
 
 For each user story, the following rules must be followed:
@@ -395,10 +547,14 @@ For each user story, the following rules must be followed:
 - Database operations are optimized and type-safe
 - Migration system is robust and provides good visibility
 - Connection pooling is configurable and monitorable
-- Test coverage is comprehensive and reliable
+- Test coverage is comprehensive and reliable (>90% for database operations)
 - Transaction operations are atomic, reliable, and performant
 - Error recovery and retry logic handles transient failures
 - Transaction monitoring provides operational visibility
+- Integration tests cover all major features with real database
+- Performance benchmarks validate scalability
+- Edge cases and error scenarios are thoroughly tested
+- All tests can run in CI/CD pipeline with automated database setup
 
 ## Timeline Estimate
 
@@ -417,14 +573,19 @@ For each user story, the following rules must be followed:
 - **Story 13**: 1-2 days (GetUserRoles transaction handling)
 - **Story 14**: 2-3 days (transaction monitoring)
 - **Story 15**: 2-3 days (comprehensive transaction testing)
+- **Story 16**: 4-5 days (convert sample-app to integration tests)
+- **Story 17**: 3-4 days (database-backed unit tests)
+- **Story 18**: 2-3 days (performance and load testing)
+- **Story 19**: 2-3 days (edge case and error testing)
+- **Story 20**: 2-3 days (GitHub Actions database testing setup)
 
-**Total Estimated Time**: 30-44 days
+**Total Estimated Time**: 43-62 days
 
 ## Risk Assessment
 
-- **Low Risk**: Stories 1, 5, 8, 13 (updates and optimizations)
-- **Medium Risk**: Stories 2, 4, 6, 7, 9, 10, 11, 12, 14 (enhancements and new features)
-- **High Risk**: Stories 3, 15 (transaction support requires careful design)
+- **Low Risk**: Stories 1, 5, 8, 13, 20 (updates, optimizations, and CI/CD setup)
+- **Medium Risk**: Stories 2, 4, 6, 7, 9, 10, 11, 12, 14, 16, 18, 19 (enhancements and new features)
+- **High Risk**: Stories 3, 15, 17 (transaction support and comprehensive testing require careful design)
 
 ## Dependencies
 
@@ -432,3 +593,6 @@ For each user story, the following rules must be followed:
 - Stories 9-15 depend on Stories 3 (basic transaction support)
 - Story 8 (testing) should be done throughout the process
 - Stories 9-15 should be implemented in order as they build on each other
+- Stories 16-19 should be done after Stories 1-15 to ensure all functionality is tested
+- Story 16 (integration tests) provides the foundation for Stories 17-19
+- Story 20 should be implemented after Stories 16-19 to test the complete test suite in CI/CD
