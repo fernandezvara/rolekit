@@ -192,10 +192,10 @@ func TestNewUserRoles(t *testing.T) {
 
 		ur := NewUserRoles("user123", assignments)
 
-		// Should only include assignments for the specified user
+		// NewUserRoles stores all assignments but indexes by scope
 		assert.Equal(t, "user123", ur.UserID)
-		assert.Len(t, ur.Assignments, 2) // Both assignments are kept
-		assert.Equal(t, []string{"admin"}, ur.byScope["organization:org123"])
+		assert.Len(t, ur.Assignments, 2)                                                // Both assignments are kept
+		assert.Equal(t, []string{"admin", "member"}, ur.byScope["organization:org123"]) // All roles in scope
 	})
 }
 

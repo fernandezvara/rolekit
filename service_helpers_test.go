@@ -209,12 +209,13 @@ func TestIsTransientTransactionError(t *testing.T) {
 	})
 
 	t.Run("Context errors", func(t *testing.T) {
-		ctx, _ := context.WithTimeout(context.Background(), time.Nanosecond)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
 		<-ctx.Done()
+		cancel()
 		assert.True(t, isTransientTransactionError(ctx.Err()))
 
-		ctx2, cancel := context.WithCancel(context.Background())
-		cancel()
+		ctx2, cancel2 := context.WithCancel(context.Background())
+		cancel2()
 		assert.True(t, isTransientTransactionError(ctx2.Err()))
 	})
 
