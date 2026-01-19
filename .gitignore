@@ -21,9 +21,6 @@ vendor/
 .DS_Store
 Thumbs.db
 
-# Generated files
-docker-compose.yml
-
 # coverage report
 coverage.out
 coverage.html
@@ -31,3 +28,6 @@ coverage.html
 # reference files
 reference/*
 plan.md
+
+# sample app
+examples/sample-app/sample-app

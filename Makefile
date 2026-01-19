@@ -1,9 +1,6 @@
 # Makefile for dbkit - PostgreSQL integration testing
 # Supports both Docker and Podman container runtimes
 
-# Include PostgreSQL versions
-include scripts/versions.mk
-
 .PHONY: help detect-runtime start stop test clean lint
 
 # Detect container runtime (docker or podman)
@@ -32,8 +29,6 @@ else ifdef PODMAN_COMPOSE
 else
     $(error No compose tool found. Please install docker-compose, docker compose plugin, or podman-compose)
 endif
-
-# PostgreSQL versions and their ports are now in versions.mk
 
 # Default test timeout
 TEST_TIMEOUT := 5m
@@ -66,7 +61,7 @@ detect-runtime: ## Show detected container runtime and compose tool
 
 test: ## Run unit tests (no database required)
 	@echo "$(GREEN)Running unit tests...$(NC)"
-	go test -v -race -timeout $(TEST_TIMEOUT) ./...
+	go test -v -cover -race -timeout $(TEST_TIMEOUT) ./...
 
 
 # Run tests with coverage

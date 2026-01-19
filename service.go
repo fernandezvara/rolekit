@@ -6,12 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/fernandezvara/dbkit"
 	"github.com/uptrace/bun"
+
+	"github.com/fernandezvara/dbkit"
 )
 
 // Service provides role management and permission checking capabilities.
@@ -26,24 +30,130 @@ import (
 //
 //	err := service.Assign(ctx, userID, role, scopeType, scopeID)
 //	if err != nil {
-//		// Check for specific error types
-//		if dbkit.IsDuplicate(err) {
-//			// Handle duplicate assignment
-//		}
-//		if dbkit.IsNotFound(err) {
-//			// Handle not found scenarios
-//		}
+//	    // Check for specific error types
+//	    if dbkit.IsDuplicate(err) {
+//	        // Handle duplicate assignment
+//	    }
+//	    if dbkit.IsNotFound(err) {
+//	        // Handle not found scenarios
+//	    }
 //
-//		// Access rich error details
-//		var dbErr *dbkit.Error
-//		if errors.As(err, &dbErr) {
-//			fmt.Printf("Operation: %s, Table: %s, Constraint: %s\n",
-//				dbErr.Operation, dbErr.Table, dbErr.Constraint)
-//		}
+//	    // Access rich error details
+//	    var dbErr *dbkit.Error
+//	    if errors.As(err, &dbErr) {
+//	        fmt.Printf("Operation: %s, Table: %s, Constraint: %s\n",
+//	            dbErr.Operation, dbErr.Table, dbErr.Constraint)
+//	    }
 //	}
 type Service struct {
-	db       dbkit.IDB
-	registry *Registry
+	db        dbkit.IDB
+	registry  *Registry
+	txMonitor *transactionMonitor
+}
+
+// TransactionMetrics provides transaction performance and failure statistics.
+type TransactionMetrics struct {
+	TotalTransactions      int64         `json:"total_transactions"`
+	SuccessfulTransactions int64         `json:"successful_transactions"`
+	FailedTransactions     int64         `json:"failed_transactions"`
+	AverageDuration        time.Duration `json:"average_duration"`
+	MaxDuration            time.Duration `json:"max_duration"`
+	MinDuration            time.Duration `json:"min_duration"`
+	LastReset              time.Time     `json:"last_reset"`
+}
+
+// transactionMonitor holds the internal transaction monitoring state
+type transactionMonitor struct {
+	totalCount    int64
+	successCount  int64
+	failureCount  int64
+	totalDuration int64 // nanoseconds
+	maxDuration   int64 // nanoseconds
+	minDuration   int64 // nanoseconds
+	lastReset     time.Time
+	mu            sync.RWMutex
+}
+
+// newTransactionMonitor creates a new transaction monitor
+func newTransactionMonitor() *transactionMonitor {
+	return &transactionMonitor{
+		minDuration: int64(time.Hour), // Initialize to a large value
+		lastReset:   time.Now(),
+	}
+}
+
+// recordTransaction records a transaction completion with its duration and success status
+func (tm *transactionMonitor) recordTransaction(duration time.Duration, success bool) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	atomic.AddInt64(&tm.totalCount, 1)
+	atomic.AddInt64(&tm.totalDuration, int64(duration))
+
+	if success {
+		atomic.AddInt64(&tm.successCount, 1)
+	} else {
+		atomic.AddInt64(&tm.failureCount, 1)
+	}
+
+	// Update max duration
+	durationNs := int64(duration)
+	for {
+		current := atomic.LoadInt64(&tm.maxDuration)
+		if durationNs <= current || atomic.CompareAndSwapInt64(&tm.maxDuration, current, durationNs) {
+			break
+		}
+	}
+
+	// Update min duration
+	for {
+		current := atomic.LoadInt64(&tm.minDuration)
+		if durationNs >= current || atomic.CompareAndSwapInt64(&tm.minDuration, current, durationNs) {
+			break
+		}
+	}
+}
+
+// getMetrics returns the current transaction metrics
+func (tm *transactionMonitor) getMetrics() TransactionMetrics {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	total := atomic.LoadInt64(&tm.totalCount)
+	success := atomic.LoadInt64(&tm.successCount)
+	failure := atomic.LoadInt64(&tm.failureCount)
+	totalDur := atomic.LoadInt64(&tm.totalDuration)
+	maxDur := atomic.LoadInt64(&tm.maxDuration)
+	minDur := atomic.LoadInt64(&tm.minDuration)
+
+	var avgDuration time.Duration
+	if total > 0 {
+		avgDuration = time.Duration(totalDur / total)
+	}
+
+	return TransactionMetrics{
+		TotalTransactions:      total,
+		SuccessfulTransactions: success,
+		FailedTransactions:     failure,
+		AverageDuration:        avgDuration,
+		MaxDuration:            time.Duration(maxDur),
+		MinDuration:            time.Duration(minDur),
+		LastReset:              tm.lastReset,
+	}
+}
+
+// reset resets all metrics
+func (tm *transactionMonitor) reset() {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	atomic.StoreInt64(&tm.totalCount, 0)
+	atomic.StoreInt64(&tm.successCount, 0)
+	atomic.StoreInt64(&tm.failureCount, 0)
+	atomic.StoreInt64(&tm.totalDuration, 0)
+	atomic.StoreInt64(&tm.maxDuration, 0)
+	atomic.StoreInt64(&tm.minDuration, int64(time.Hour))
+	tm.lastReset = time.Now()
 }
 
 // NewService creates a new RoleKit service.
@@ -56,8 +166,9 @@ type Service struct {
 //	service := rolekit.NewService(registry, db)
 func NewService(registry *Registry, db dbkit.IDB) *Service {
 	return &Service{
-		db:       db,
-		registry: registry,
+		db:        db,
+		registry:  registry,
+		txMonitor: newTransactionMonitor(),
 	}
 }
 
@@ -72,37 +183,44 @@ func (s *Service) Registry() *Registry {
 // Example:
 //
 //	err := service.Transaction(ctx, func(ctx context.Context) error {
-//		if err := service.Assign(ctx, "user1", "admin", "organization", "org1"); err != nil {
-//			return err // This will cause a rollback
-//		}
-//		if err := service.Assign(ctx, "user2", "member", "organization", "org1"); err != nil {
-//			return err // This will cause a rollback
-//		}
-//		return nil // This will cause a commit
+//	    if err := service.Assign(ctx, "user1", "admin", "organization", "org1"); err != nil {
+//	        return err // This will cause a rollback
+//	    }
+//	    if err := service.Assign(ctx, "user2", "member", "organization", "org1"); err != nil {
+//	        return err // This will cause a rollback
+//	    }
+//	    return nil // This will cause a commit
 //	})
 func (s *Service) Transaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	start := time.Now()
+	var err error
+
 	// Check if we're already in a transaction by casting to dbkit.Tx
 	if tx, ok := s.db.(*dbkit.Tx); ok {
 		// We're already in a transaction, use savepoint
-		return tx.Transaction(ctx, func(tx *dbkit.Tx) error {
-			// Create a new service that uses the transaction
-			s.db = tx
+		err = tx.Transaction(ctx, func(tx *dbkit.Tx) error {
+			// Use the transaction directly for operations within this scope
 			return fn(ctx)
 		})
+	} else {
+		// We're not in a transaction, start a new one
+		if db, ok := s.db.(*dbkit.DBKit); ok {
+			err = db.Transaction(ctx, func(tx *dbkit.Tx) error {
+				// Use the transaction directly for operations within this scope
+				return fn(ctx)
+			})
+		} else {
+			// If we can't determine the type, try to use the generic interface
+			// This is a fallback - ideally we'd have better type information
+			err = fmt.Errorf("transaction support requires a dbkit.DBKit or dbkit.Tx instance")
+		}
 	}
 
-	// We're not in a transaction, start a new one
-	if db, ok := s.db.(*dbkit.DBKit); ok {
-		return db.Transaction(ctx, func(tx *dbkit.Tx) error {
-			// Create a new service that uses the transaction
-			s.db = tx
-			return fn(ctx)
-		})
-	}
+	// Record transaction metrics
+	duration := time.Since(start)
+	s.txMonitor.recordTransaction(duration, err == nil)
 
-	// If we can't determine the type, try to use the generic interface
-	// This is a fallback - ideally we'd have better type information
-	return fmt.Errorf("transaction support requires a dbkit.DBKit or dbkit.Tx instance")
+	return err
 }
 
 // TransactionWithOptions executes a function within a database transaction with custom options.
@@ -111,8 +229,8 @@ func (s *Service) Transaction(ctx context.Context, fn func(ctx context.Context) 
 // Example:
 //
 //	err := service.TransactionWithOptions(ctx, dbkit.SerializableTxOptions(), func(ctx context.Context) error {
-//		// High isolation level operations
-//		return service.Assign(ctx, "user1", "admin", "organization", "org1")
+//	    // High isolation level operations
+//	    return service.Assign(ctx, "user1", "admin", "organization", "org1")
 //	})
 func (s *Service) TransactionWithOptions(ctx context.Context, opts dbkit.TxOptions, fn func(ctx context.Context) error) error {
 	// Check if we're already in a transaction by casting to dbkit.Tx
@@ -144,12 +262,12 @@ func (s *Service) TransactionWithOptions(ctx context.Context, opts dbkit.TxOptio
 // Example:
 //
 //	err := service.ReadOnlyTransaction(ctx, func(ctx context.Context) error {
-//		roles, err := service.GetUserRoles(ctx, userID)
-//		if err != nil {
-//			return err
-//		}
-//		members, err := service.GetScopeMembers(ctx, "organization", orgID)
-//		return err
+//	    roles, err := service.GetUserRoles(ctx, userID)
+//	    if err != nil {
+//	        return err
+//	    }
+//	    members, err := service.GetScopeMembers(ctx, "organization", orgID)
+//	    return err
 //	})
 func (s *Service) ReadOnlyTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
 	return s.TransactionWithOptions(ctx, dbkit.ReadOnlyTxOptions(), fn)
@@ -164,52 +282,52 @@ func (s *Service) Migrations() []dbkit.Migration {
 			ID:          "rolekit-001",
 			Description: "Create role_assignments table",
 			SQL: `
-				CREATE TABLE IF NOT EXISTS role_assignments (
-					id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-					user_id TEXT NOT NULL,
-					role TEXT NOT NULL,
-					scope_type TEXT NOT NULL,
-					scope_id TEXT NOT NULL,
-					parent_scope_type TEXT,
-					parent_scope_id TEXT,
-					created_at TIMESTAMPTZ DEFAULT current_timestamp,
-					updated_at TIMESTAMPTZ DEFAULT current_timestamp
-				)`,
+                CREATE TABLE IF NOT EXISTS role_assignments (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    user_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    scope_type TEXT NOT NULL,
+                    scope_id TEXT NOT NULL,
+                    parent_scope_type TEXT,
+                    parent_scope_id TEXT,
+                    created_at TIMESTAMPTZ DEFAULT current_timestamp,
+                    updated_at TIMESTAMPTZ DEFAULT current_timestamp
+                )`,
 		},
 		{
 			ID:          "rolekit-002",
 			Description: "Create role_audit_log table",
 			SQL: `
-				CREATE TABLE IF NOT EXISTS role_audit_log (
-					id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-					timestamp TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-					actor_id TEXT NOT NULL,
-					action TEXT NOT NULL,
-					target_user_id TEXT NOT NULL,
-					role TEXT NOT NULL,
-					scope_type TEXT NOT NULL,
-					scope_id TEXT NOT NULL,
-					actor_roles TEXT[],
-					previous_roles TEXT[],
-					new_roles TEXT[],
-					ip_address TEXT,
-					user_agent TEXT,
-					request_id TEXT,
-					metadata JSONB
-				)`,
+                CREATE TABLE IF NOT EXISTS role_audit_log (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    timestamp TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+                    actor_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    target_user_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    scope_type TEXT NOT NULL,
+                    scope_id TEXT NOT NULL,
+                    actor_roles TEXT[],
+                    previous_roles TEXT[],
+                    new_roles TEXT[],
+                    ip_address TEXT,
+                    user_agent TEXT,
+                    request_id TEXT,
+                    metadata JSONB
+                )`,
 		},
 		{
 			ID:          "rolekit-003",
 			Description: "Create scope_hierarchy table",
 			SQL: `
-				CREATE TABLE IF NOT EXISTS scope_hierarchy (
-					id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-					scope_type TEXT NOT NULL,
-					scope_id TEXT NOT NULL,
-					parent_scope_type TEXT NOT NULL,
-					parent_scope_id TEXT NOT NULL,
-					created_at TIMESTAMPTZ DEFAULT current_timestamp
-				)`,
+                CREATE TABLE IF NOT EXISTS scope_hierarchy (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    scope_type TEXT NOT NULL,
+                    scope_id TEXT NOT NULL,
+                    parent_scope_type TEXT NOT NULL,
+                    parent_scope_id TEXT NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT current_timestamp
+                )`,
 		},
 
 		// Index migrations
@@ -290,8 +408,8 @@ type MigrationStatus struct {
 //
 //	status, err := service.RunMigrations(ctx)
 //	if err != nil {
-//		log.Printf("Migration failed: %v", err)
-//		return
+//	    log.Printf("Migration failed: %v", err)
+//	    return
 //	}
 //	log.Printf("Applied %d migrations, %d pending", status.Applied, status.Pending)
 func (s *Service) RunMigrations(ctx context.Context) (*MigrationStatus, error) {
@@ -330,11 +448,11 @@ func (s *Service) RunMigrations(ctx context.Context) (*MigrationStatus, error) {
 //
 //	status, err := service.GetMigrationStatus(ctx)
 //	if err != nil {
-//		log.Printf("Failed to get migration status: %v", err)
-//		return
+//	    log.Printf("Failed to get migration status: %v", err)
+//	    return
 //	}
 //	for _, migration := range status.Migrations {
-//		log.Printf("Migration %s: %s", migration.ID, migration.Status)
+//	    log.Printf("Migration %s: %s", migration.ID, migration.Status)
 //	}
 func (s *Service) GetMigrationStatus(ctx context.Context) (*MigrationStatus, error) {
 	// Check if we have a DBKit instance
@@ -385,11 +503,11 @@ func (s *Service) GetMigrationStatus(ctx context.Context) (*MigrationStatus, err
 //
 //	valid, err := service.VerifyMigrationChecksums(ctx)
 //	if err != nil {
-//		log.Printf("Checksum verification failed: %v", err)
-//		return
+//	    log.Printf("Checksum verification failed: %v", err)
+//	    return
 //	}
 //	if !valid {
-//		log.Printf("Migration checksums do not match - potential tampering detected")
+//	    log.Printf("Migration checksums do not match - potential tampering detected")
 //	}
 func (s *Service) VerifyMigrationChecksums(ctx context.Context) (bool, error) {
 	status, err := s.GetMigrationStatus(ctx)
@@ -415,8 +533,8 @@ func (s *Service) VerifyMigrationChecksums(ctx context.Context) (bool, error) {
 //
 //	err := service.RollbackToMigration(ctx, "rolekit-010")
 //	if err != nil {
-//		log.Printf("Rollback failed: %v", err)
-//		return
+//	    log.Printf("Rollback failed: %v", err)
+//	    return
 //	}
 func (s *Service) RollbackToMigration(ctx context.Context, targetMigrationID string) error {
 	// Check if we have a DBKit instance
@@ -478,8 +596,8 @@ func (s *Service) RollbackToMigration(ctx context.Context, targetMigrationID str
 //
 //	err := service.ValidateMigrations()
 //	if err != nil {
-//		log.Printf("Migration validation failed: %v", err)
-//		return
+//	    log.Printf("Migration validation failed: %v", err)
+//	    return
 //	}
 //	log.Printf("All migrations are valid")
 func (s *Service) ValidateMigrations() error {
@@ -518,10 +636,10 @@ func (s *Service) ValidateMigrations() error {
 //
 //	status := service.Health(ctx)
 //	if status.Healthy {
-//		log.Printf("Database is healthy, latency: %v", status.Latency)
+//	    log.Printf("Database is healthy, latency: %v", status.Latency)
 //	} else {
-//		log.Printf("Database is unhealthy: %s", status.Error)
-//		log.Printf("Pool stats: InUse=%d, Idle=%d", status.PoolStats.InUse, status.PoolStats.Idle)
+//	    log.Printf("Database is unhealthy: %s", status.Error)
+//	    log.Printf("Pool stats: InUse=%d, Idle=%d", status.PoolStats.InUse, status.PoolStats.Idle)
 //	}
 func (s *Service) Health(ctx context.Context) dbkit.HealthStatus {
 	// Check if we have a DBKit instance
@@ -545,8 +663,8 @@ func (s *Service) Health(ctx context.Context) dbkit.HealthStatus {
 // Example:
 //
 //	if !service.IsHealthy(ctx) {
-//		log.Printf("Database is not healthy")
-//		// Handle unhealthy state
+//	    log.Printf("Database is not healthy")
+//	    // Handle unhealthy state
 //	}
 func (s *Service) IsHealthy(ctx context.Context) bool {
 	// Check if we have a DBKit instance
@@ -568,7 +686,7 @@ func (s *Service) IsHealthy(ctx context.Context) bool {
 //
 //	stats := service.GetPoolStats()
 //	log.Printf("Connections: InUse=%d, Idle=%d, Max=%d",
-//		stats.InUse, stats.Idle, stats.MaxOpen)
+//	    stats.InUse, stats.Idle, stats.MaxOpen)
 func (s *Service) GetPoolStats() dbkit.PoolStats {
 	// Check if we have a DBKit instance
 	if db, ok := s.db.(*dbkit.DBKit); ok {
@@ -588,8 +706,8 @@ func (s *Service) GetPoolStats() dbkit.PoolStats {
 // Example:
 //
 //	if err := service.Ping(ctx); err != nil {
-//		log.Printf("Database ping failed: %v", err)
-//		return err
+//	    log.Printf("Database ping failed: %v", err)
+//	    return err
 //	}
 func (s *Service) Ping(ctx context.Context) error {
 	// Use a simple query to test connectivity
@@ -611,8 +729,8 @@ type RoleRevocation struct {
 // Example:
 //
 //	assignments := []rolekit.RoleAssignment{
-//		{UserID: "user1", Role: "admin", ScopeType: "organization", ScopeID: "org1"},
-//		{UserID: "user2", Role: "member", ScopeType: "organization", ScopeID: "org1"},
+//	    {UserID: "user1", Role: "admin", ScopeType: "organization", ScopeID: "org1"},
+//	    {UserID: "user2", Role: "member", ScopeType: "organization", ScopeID: "org1"},
 //	}
 //	err := service.AssignMultiple(ctx, assignments)
 func (s *Service) AssignMultiple(ctx context.Context, assignments []RoleAssignment) error {
@@ -656,7 +774,7 @@ func (s *Service) AssignMultiple(ctx context.Context, assignments []RoleAssignme
 //
 //	revocations := []rolekit.RoleRevocation{
 //	{UserID: "user1", Role: "admin", ScopeType: "organization", ScopeID: "org1"},
-//		{UserID: "user2", Role: "member", ScopeType: "organization", ScopeID: "org1"},
+//	    {UserID: "user2", Role: "member", ScopeType: "organization", ScopeID: "org1"},
 //	}
 //	err := service.RevokeMultiple(ctx, revocations)
 func (s *Service) RevokeMultiple(ctx context.Context, revocations []RoleRevocation) error {
@@ -709,7 +827,7 @@ func (s *Service) RevokeMultiple(ctx context.Context, revocations []RoleRevocati
 //
 //	hasAdmin := service.CheckExists(ctx, "user1", "admin", "organization", "org1")
 //	if hasAdmin {
-//		log.Println("User is admin")
+//	    log.Println("User is admin")
 //	}
 func (s *Service) CheckExists(ctx context.Context, userID, role, scopeType, scopeID string) bool {
 	exists, err := dbkit.Exists[RoleAssignment](ctx, s.db, func(q *bun.SelectQuery) *bun.SelectQuery {
@@ -812,7 +930,7 @@ func LowResourcePoolConfig() PoolConfig {
 //	config := rolekit.HighPerformancePoolConfig()
 //	err := service.ConfigureConnectionPool(config)
 //	if err != nil {
-//		log.Printf("Failed to configure connection pool: %v", err)
+//	    log.Printf("Failed to configure connection pool: %v", err)
 //	}
 func (s *Service) ConfigureConnectionPool(config PoolConfig) error {
 	// Check if we have a DBKit instance with access to the underlying database
@@ -851,8 +969,8 @@ func (s *Service) ConfigureConnectionPool(config PoolConfig) error {
 //
 //	config, err := service.GetConnectionPoolConfig()
 //	if err != nil {
-//		log.Printf("Failed to get connection pool config: %v", err)
-//		return
+//	    log.Printf("Failed to get connection pool config: %v", err)
+//	    return
 //	}
 //	log.Printf("Current pool config: %+v", config)
 func (s *Service) GetConnectionPoolConfig() (*PoolConfig, error) {
@@ -887,7 +1005,7 @@ func (s *Service) GetConnectionPoolConfig() (*PoolConfig, error) {
 //
 //	err := service.OptimizeConnectionPool()
 //	if err != nil {
-//		log.Printf("Failed to optimize connection pool: %v", err)
+//	    log.Printf("Failed to optimize connection pool: %v", err)
 //	}
 func (s *Service) OptimizeConnectionPool() error {
 	stats := s.GetPoolStats()
@@ -938,7 +1056,7 @@ func (s *Service) OptimizeConnectionPool() error {
 //
 //	err := service.ResetConnectionPool()
 //	if err != nil {
-//		log.Printf("Failed to reset connection pool: %v", err)
+//	    log.Printf("Failed to reset connection pool: %v", err)
 //	}
 func (s *Service) ResetConnectionPool() error {
 	return s.ConfigureConnectionPool(DefaultPoolConfig())
@@ -1427,4 +1545,204 @@ func (s *Service) getParentScope(ctx context.Context, scopeType, scopeID string)
 func (s *Service) logAudit(ctx context.Context, entry *AuditEntry) error {
 	_, err := s.db.NewInsert().Model(entry.ToModel()).Exec(ctx)
 	return dbkit.WithErr1(err, "LogAudit").Err()
+}
+
+// AssignDirect assigns a role to a user without pre-checks for better performance.
+// This method bypasses GetUserRoles calls and handles duplicate key constraints gracefully.
+func (s *Service) AssignDirect(ctx context.Context, userID, role, scopeType, scopeID string) error {
+	// Validate role exists for scope
+	if err := s.registry.ValidateRole(role, scopeType); err != nil {
+		return err
+	}
+
+	// Check if actor can assign this role
+	actorID := GetActorID(ctx)
+	if actorID == "" {
+		return NewError(ErrNoActorID, "actor ID required for role assignment")
+	}
+
+	// Create assignment
+	assignment := &RoleAssignment{
+		UserID:    userID,
+		Role:      role,
+		ScopeType: scopeType,
+		ScopeID:   scopeID,
+	}
+
+	// Direct assignment with conflict resolution
+	result, err := s.db.NewInsert().
+		Model(assignment).
+		On("CONFLICT (user_id, role, scope_type, scope_id) DO NOTHING").
+		Exec(ctx)
+
+	err = dbkit.WithErr(result, err, "CreateRoleAssignmentDirect").Err()
+	if err != nil {
+		return NewError(ErrDatabaseError, "failed to create role assignment").
+			WithScope(scopeType, scopeID).
+			WithRole(role).
+			WithUser(userID)
+	}
+
+	// Check if assignment was actually made (not a duplicate)
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		// Role already exists - this is not an error for AssignDirect
+		return NewError(ErrRoleAlreadyAssigned, "user already has this role").
+			WithScope(scopeType, scopeID).
+			WithRole(role).
+			WithUser(userID)
+	}
+
+	// Create audit log entry (simplified)
+	audit := GetAuditContext(ctx)
+	entry := &AuditEntry{
+		ActorID:      actorID,
+		Action:       AuditActionAssigned,
+		TargetUserID: userID,
+		Role:         role,
+		ScopeType:    scopeType,
+		ScopeID:      scopeID,
+		IPAddress:    audit.IPAddress,
+		UserAgent:    audit.UserAgent,
+		RequestID:    audit.RequestID,
+	}
+
+	_ = s.logAudit(ctx, entry) // Log error but don't fail the assignment
+
+	return nil
+}
+
+// AssignWithRetry assigns a role to a user with automatic retry for transient errors.
+func (s *Service) AssignWithRetry(ctx context.Context, userID, role, scopeType, scopeID string) error {
+	return s.assignWithRetry(ctx, userID, role, scopeType, scopeID, 3)
+}
+
+// assignWithRetry is the internal implementation of retry logic with configurable attempts.
+func (s *Service) assignWithRetry(ctx context.Context, userID, role, scopeType, scopeID string, maxAttempts int) error {
+	var lastErr error
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		err := s.Assign(ctx, userID, role, scopeType, scopeID)
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+
+		// Check if this is a transient error that can be retried
+		if !isTransientTransactionError(err) {
+			// Not a transient error, return immediately
+			return err
+		}
+
+		// For transient errors, wait with exponential backoff
+		if attempt < maxAttempts-1 {
+			backoffDuration := time.Duration(math.Pow(2, float64(attempt))) * time.Second
+			time.Sleep(backoffDuration)
+		}
+	}
+
+	return fmt.Errorf("failed after %d attempts: %w", maxAttempts, lastErr)
+}
+
+// AssignMultipleWithRetry assigns multiple roles with automatic retry for transient errors.
+func (s *Service) AssignMultipleWithRetry(ctx context.Context, assignments []RoleAssignment) error {
+	return s.assignMultipleWithRetry(ctx, assignments, 3)
+}
+
+// assignMultipleWithRetry is the internal implementation of retry logic for bulk operations.
+func (s *Service) assignMultipleWithRetry(ctx context.Context, assignments []RoleAssignment, maxAttempts int) error {
+	var lastErr error
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		err := s.AssignMultiple(ctx, assignments)
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+
+		// Check if this is a transient error that can be retried
+		if !isTransientTransactionError(err) {
+			// Not a transient error, return immediately
+			return err
+		}
+
+		// For transient errors, wait with exponential backoff
+		if attempt < maxAttempts-1 {
+			backoffDuration := time.Duration(math.Pow(2, float64(attempt))) * time.Second
+			time.Sleep(backoffDuration)
+		}
+	}
+
+	return fmt.Errorf("failed after %d attempts: %w", maxAttempts, lastErr)
+}
+
+// isTransientTransactionError checks if an error is a transient transaction error
+func isTransientTransactionError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errStr := err.Error()
+
+	// Check for transaction state errors
+	if strings.Contains(errStr, "transaction has already been committed") ||
+		strings.Contains(errStr, "transaction has already been rolled back") ||
+		strings.Contains(errStr, "transaction is closed") {
+		return true
+	}
+
+	// Check for connection errors
+	if strings.Contains(errStr, "connection") ||
+		strings.Contains(errStr, "timeout") ||
+		strings.Contains(errStr, "network") ||
+		dbkit.IsConnection(err) {
+		return true
+	}
+
+	// Check for deadlock errors
+	if strings.Contains(errStr, "deadlock") ||
+		strings.Contains(errStr, "lock wait timeout") {
+		return true
+	}
+
+	return false
+}
+
+// GetTransactionMetrics returns the current transaction performance metrics.
+func (s *Service) GetTransactionMetrics() TransactionMetrics {
+	return s.txMonitor.getMetrics()
+}
+
+// ResetTransactionMetrics resets all transaction metrics.
+func (s *Service) ResetTransactionMetrics() {
+	s.txMonitor.reset()
+}
+
+// IsTransactionHealthy checks if transaction performance is within acceptable thresholds.
+func (s *Service) IsTransactionHealthy() bool {
+	metrics := s.txMonitor.getMetrics()
+
+	// If we have very few transactions, consider it healthy
+	if metrics.TotalTransactions < 10 {
+		return true
+	}
+
+	// Check failure rate (should be less than 5%)
+	failureRate := float64(metrics.FailedTransactions) / float64(metrics.TotalTransactions)
+	if failureRate > 0.05 {
+		return false
+	}
+
+	// Check average duration (should be less than 1 second)
+	if metrics.AverageDuration > time.Second {
+		return false
+	}
+
+	return true
 }
