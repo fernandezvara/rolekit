@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"sync"
-	"sync/atomic"
+	"log"
+	"math/rand/v2"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -45,111 +45,6 @@ type Service struct {
 	db        dbkit.IDB
 	registry  *Registry
 	txMonitor *transactionMonitor
-}
-
-// TransactionMetrics provides transaction performance and failure statistics.
-type TransactionMetrics struct {
-	TotalTransactions      int64         `json:"total_transactions"`
-	SuccessfulTransactions int64         `json:"successful_transactions"`
-	FailedTransactions     int64         `json:"failed_transactions"`
-	AverageDuration        time.Duration `json:"average_duration"`
-	MaxDuration            time.Duration `json:"max_duration"`
-	MinDuration            time.Duration `json:"min_duration"`
-	LastReset              time.Time     `json:"last_reset"`
-}
-
-// transactionMonitor holds the internal transaction monitoring state
-type transactionMonitor struct {
-	totalCount    int64
-	successCount  int64
-	failureCount  int64
-	totalDuration int64 // nanoseconds
-	maxDuration   int64 // nanoseconds
-	minDuration   int64 // nanoseconds
-	lastReset     time.Time
-	mu            sync.RWMutex
-}
-
-// newTransactionMonitor creates a new transaction monitor
-func newTransactionMonitor() *transactionMonitor {
-	return &transactionMonitor{
-		minDuration: int64(time.Hour), // Initialize to a large value
-		lastReset:   time.Now(),
-	}
-}
-
-// recordTransaction records a transaction completion with its duration and success status
-func (tm *transactionMonitor) recordTransaction(duration time.Duration, success bool) {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
-	atomic.AddInt64(&tm.totalCount, 1)
-	atomic.AddInt64(&tm.totalDuration, int64(duration))
-
-	if success {
-		atomic.AddInt64(&tm.successCount, 1)
-	} else {
-		atomic.AddInt64(&tm.failureCount, 1)
-	}
-
-	// Update max duration
-	durationNs := int64(duration)
-	for {
-		current := atomic.LoadInt64(&tm.maxDuration)
-		if durationNs <= current || atomic.CompareAndSwapInt64(&tm.maxDuration, current, durationNs) {
-			break
-		}
-	}
-
-	// Update min duration
-	for {
-		current := atomic.LoadInt64(&tm.minDuration)
-		if durationNs >= current || atomic.CompareAndSwapInt64(&tm.minDuration, current, durationNs) {
-			break
-		}
-	}
-}
-
-// getMetrics returns the current transaction metrics
-func (tm *transactionMonitor) getMetrics() TransactionMetrics {
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
-
-	total := atomic.LoadInt64(&tm.totalCount)
-	success := atomic.LoadInt64(&tm.successCount)
-	failure := atomic.LoadInt64(&tm.failureCount)
-	totalDur := atomic.LoadInt64(&tm.totalDuration)
-	maxDur := atomic.LoadInt64(&tm.maxDuration)
-	minDur := atomic.LoadInt64(&tm.minDuration)
-
-	var avgDuration time.Duration
-	if total > 0 {
-		avgDuration = time.Duration(totalDur / total)
-	}
-
-	return TransactionMetrics{
-		TotalTransactions:      total,
-		SuccessfulTransactions: success,
-		FailedTransactions:     failure,
-		AverageDuration:        avgDuration,
-		MaxDuration:            time.Duration(maxDur),
-		MinDuration:            time.Duration(minDur),
-		LastReset:              tm.lastReset,
-	}
-}
-
-// reset resets all metrics
-func (tm *transactionMonitor) reset() {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
-	atomic.StoreInt64(&tm.totalCount, 0)
-	atomic.StoreInt64(&tm.successCount, 0)
-	atomic.StoreInt64(&tm.failureCount, 0)
-	atomic.StoreInt64(&tm.totalDuration, 0)
-	atomic.StoreInt64(&tm.maxDuration, 0)
-	atomic.StoreInt64(&tm.minDuration, int64(time.Hour))
-	tm.lastReset = time.Now()
 }
 
 // NewService creates a new RoleKit service.
@@ -272,30 +167,109 @@ func (s *Service) ReadOnlyTransaction(ctx context.Context, fn func(ctx context.C
 // Migration extension methods - delegate to MigrationService
 
 // Migrations returns all database migrations required for RoleKit.
+// Use dbkit.Migrate(ctx, service.Migrations()) to run migrations.
+// Use dbkit.MigrationStatus(ctx, service.Migrations()) to check status.
 func (s *Service) Migrations() []dbkit.Migration {
-	return NewMigrationService(s).Migrations()
+	return []dbkit.Migration{
+		{
+			ID:          "rolekit-001",
+			Description: "Create role_assignments table",
+			SQL: `
+                CREATE TABLE IF NOT EXISTS role_assignments (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    user_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    scope_type TEXT NOT NULL,
+                    scope_id TEXT NOT NULL,
+                    parent_scope_type TEXT,
+                    parent_scope_id TEXT,
+                    created_at TIMESTAMPTZ DEFAULT current_timestamp,
+                    updated_at TIMESTAMPTZ DEFAULT current_timestamp
+                )`,
+		},
+		{
+			ID:          "rolekit-002",
+			Description: "Create role_audit_log table",
+			SQL: `
+                CREATE TABLE IF NOT EXISTS role_audit_log (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    timestamp TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+                    actor_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    target_user_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    scope_type TEXT NOT NULL,
+                    scope_id TEXT NOT NULL,
+                    ip_address TEXT,
+                    user_agent TEXT,
+                    request_id TEXT
+                )`,
+		},
+		{
+			ID:          "rolekit-003",
+			Description: "Create scope_hierarchy table",
+			SQL: `
+                CREATE TABLE IF NOT EXISTS scope_hierarchy (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    scope_type TEXT NOT NULL,
+                    scope_id TEXT NOT NULL,
+                    parent_scope_type TEXT NOT NULL,
+                    parent_scope_id TEXT NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT current_timestamp,
+                    updated_at TIMESTAMPTZ DEFAULT current_timestamp
+                )`,
+		},
+	}
 }
 
-// Health extension methods - delegate to HealthService
-
 // Health performs a comprehensive health check of the database connection.
+// Returns detailed status including latency, connection pool statistics, and error information.
 func (s *Service) Health(ctx context.Context) dbkit.HealthStatus {
-	return NewHealthService(s).Health(ctx)
+	// Check if we have a DBKit instance
+	if db, ok := s.db.(*dbkit.DBKit); ok {
+		return db.Health(ctx)
+	}
+
+	// If we're in a transaction or have a different type, do a basic ping
+	return dbkit.HealthStatus{
+		Healthy: s.IsHealthy(ctx),
+		Error:   "Limited health check - not a DBKit instance",
+	}
 }
 
 // IsHealthy performs a simple health check of the database connection.
+// Returns true if the database is reachable, false otherwise.
 func (s *Service) IsHealthy(ctx context.Context) bool {
-	return NewHealthService(s).IsHealthy(ctx)
+	// Check if we have a DBKit instance
+	if db, ok := s.db.(*dbkit.DBKit); ok {
+		return db.IsHealthy(ctx)
+	}
+
+	// If we're in a transaction or have a different type, try to ping
+	var count int
+	err := s.db.NewSelect().Model((*struct{})(nil)).ColumnExpr("1").Limit(1).Scan(ctx, &count)
+	return err == nil
 }
 
 // GetPoolStats returns connection pool statistics for monitoring.
+// Returns zero values if the database instance doesn't support pool statistics.
 func (s *Service) GetPoolStats() dbkit.PoolStats {
-	return NewHealthService(s).GetPoolStats()
+	// Check if we have a DBKit instance
+	if db, ok := s.db.(*dbkit.DBKit); ok {
+		sqlStats := db.Stats()
+		return dbkit.PoolStatsFromSQL(sqlStats)
+	}
+
+	// Return zero values for non-DBKit instances
+	return dbkit.PoolStats{}
 }
 
 // Ping performs a basic connectivity test to the database.
+// Returns an error if the database is not reachable.
 func (s *Service) Ping(ctx context.Context) error {
-	return NewHealthService(s).Ping(ctx)
+	// Use a simple query to test connectivity
+	var result int
+	return s.db.NewSelect().Model((*struct{})(nil)).ColumnExpr("1").Limit(1).Scan(ctx, &result)
 }
 
 // RoleRevocation represents a role revocation operation for bulk operations.
@@ -304,6 +278,139 @@ type RoleRevocation struct {
 	Role      string
 	ScopeType string
 	ScopeID   string
+}
+
+// ============================================================================
+// CONNECTION POOL MANAGEMENT
+// ============================================================================
+
+// PoolConfig represents connection pool configuration settings.
+type PoolConfig struct {
+	// MaxOpenConnections is the maximum number of open connections to the database.
+	// If MaxOpenConnections is 0, there is no limit on the number of open connections.
+	MaxOpenConnections int `json:"max_open_connections"`
+
+	// MaxIdleConnections is the maximum number of connections in the idle connection pool.
+	// If MaxIdleConnections is 0, no idle connections are retained.
+	MaxIdleConnections int `json:"max_idle_connections"`
+
+	// ConnectionMaxLifetime is the maximum amount of time a connection may be reused.
+	// If ConnectionMaxLifetime is 0, connections are reused forever.
+	ConnectionMaxLifetime time.Duration `json:"connection_max_lifetime"`
+
+	// ConnectionMaxIdleTime is the maximum amount of time a connection may be idle.
+	// If ConnectionMaxIdleTime is 0, connections are not closed based on idle time.
+	ConnectionMaxIdleTime time.Duration `json:"connection_max_idle_time"`
+}
+
+// DefaultPoolConfig returns sensible default connection pool settings.
+func DefaultPoolConfig() PoolConfig {
+	return PoolConfig{
+		MaxOpenConnections:    25,
+		MaxIdleConnections:    25,
+		ConnectionMaxLifetime: time.Hour,
+		ConnectionMaxIdleTime: 5 * time.Minute,
+	}
+}
+
+// HighPerformancePoolConfig returns optimized settings for high-performance workloads.
+func HighPerformancePoolConfig() PoolConfig {
+	return PoolConfig{
+		MaxOpenConnections:    100,
+		MaxIdleConnections:    50,
+		ConnectionMaxLifetime: 30 * time.Minute,
+		ConnectionMaxIdleTime: 1 * time.Minute,
+	}
+}
+
+// LowResourcePoolConfig returns optimized settings for resource-constrained environments.
+func LowResourcePoolConfig() PoolConfig {
+	return PoolConfig{
+		MaxOpenConnections:    5,
+		MaxIdleConnections:    2,
+		ConnectionMaxLifetime: 2 * time.Hour,
+		ConnectionMaxIdleTime: 10 * time.Minute,
+	}
+}
+
+// ConfigureConnectionPool updates the database connection pool settings.
+func (s *Service) ConfigureConnectionPool(config PoolConfig) error {
+	if db, ok := s.db.(*dbkit.DBKit); ok {
+		bunDB := db.Bun()
+		if bunDB == nil {
+			return fmt.Errorf("database instance not available")
+		}
+
+		bunDB.SetMaxOpenConns(config.MaxOpenConnections)
+		bunDB.SetMaxIdleConns(config.MaxIdleConnections)
+		bunDB.SetConnMaxLifetime(config.ConnectionMaxLifetime)
+		bunDB.SetConnMaxIdleTime(config.ConnectionMaxIdleTime)
+
+		log.Printf("Connection pool configured: MaxOpen=%d, MaxIdle=%d, MaxLifetime=%v, MaxIdleTime=%v",
+			config.MaxOpenConnections, config.MaxIdleConnections,
+			config.ConnectionMaxLifetime, config.ConnectionMaxIdleTime)
+
+		return nil
+	}
+
+	return fmt.Errorf("connection pool configuration requires a dbkit.DBKit instance")
+}
+
+// GetConnectionPoolConfig returns the current connection pool configuration.
+func (s *Service) GetConnectionPoolConfig() (*PoolConfig, error) {
+	if db, ok := s.db.(*dbkit.DBKit); ok {
+		bunDB := db.Bun()
+		if bunDB == nil {
+			return nil, fmt.Errorf("database instance not available")
+		}
+
+		stats := bunDB.Stats()
+		return &PoolConfig{
+			MaxOpenConnections: stats.MaxOpenConnections,
+			MaxIdleConnections: stats.MaxOpenConnections,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("connection pool configuration requires a dbkit.DBKit instance")
+}
+
+// OptimizeConnectionPool automatically adjusts pool settings based on current usage.
+func (s *Service) OptimizeConnectionPool() error {
+	stats := s.GetPoolStats()
+
+	config, err := s.GetConnectionPoolConfig()
+	if err != nil {
+		return fmt.Errorf("failed to get current pool config: %w", err)
+	}
+
+	newConfig := *config
+
+	// If we're using most of our connections, increase the pool
+	if stats.InUse > 0 && float64(stats.InUse)/float64(stats.MaxOpenConnections) > 0.8 {
+		newConfig.MaxOpenConnections = int(float64(config.MaxOpenConnections) * 1.5)
+		newConfig.MaxIdleConnections = int(float64(config.MaxIdleConnections) * 1.5)
+	}
+
+	// If we have many idle connections, reduce the pool
+	if stats.Idle > 0 && float64(stats.Idle)/float64(stats.MaxOpenConnections) > 0.8 {
+		newConfig.MaxOpenConnections = int(float64(config.MaxOpenConnections) * 0.75)
+		newConfig.MaxIdleConnections = int(float64(config.MaxIdleConnections) * 0.75)
+	}
+
+	// Ensure minimum values
+	if newConfig.MaxOpenConnections < 5 {
+		newConfig.MaxOpenConnections = 5
+	}
+	if newConfig.MaxIdleConnections < 2 {
+		newConfig.MaxIdleConnections = 2
+	}
+
+	return s.ConfigureConnectionPool(newConfig)
+}
+
+// ResetConnectionPool resets the connection pool to default settings.
+func (s *Service) ResetConnectionPool() error {
+	return s.ConfigureConnectionPool(DefaultPoolConfig())
 }
 
 // AssignMultiple assigns multiple roles to users in a single operation.
@@ -450,81 +557,6 @@ func (s *Service) CountAllRoles(ctx context.Context) (int, error) {
 	return dbkit.Count[RoleAssignment](ctx, s.db, func(q *bun.SelectQuery) *bun.SelectQuery {
 		return q
 	})
-}
-
-// ============================================================================
-// CONNECTION POOL MANAGEMENT
-// ============================================================================
-
-// PoolConfig represents connection pool configuration settings.
-type PoolConfig struct {
-	// MaxOpenConnections is the maximum number of open connections to the database.
-	// If MaxOpenConnections is 0, there is no limit on the number of open connections.
-	MaxOpenConnections int `json:"max_open_connections"`
-
-	// MaxIdleConnections is the maximum number of connections in the idle connection pool.
-	// If MaxIdleConnections is 0, no idle connections are retained.
-	MaxIdleConnections int `json:"max_idle_connections"`
-
-	// ConnectionMaxLifetime is the maximum amount of time a connection may be reused.
-	// If ConnectionMaxLifetime is 0, connections are reused forever.
-	ConnectionMaxLifetime time.Duration `json:"connection_max_lifetime"`
-
-	// ConnectionMaxIdleTime is the maximum amount of time a connection may be idle.
-	// If ConnectionMaxIdleTime is 0, connections are not closed based on idle time.
-	ConnectionMaxIdleTime time.Duration `json:"connection_max_idle_time"`
-}
-
-// DefaultPoolConfig returns sensible default connection pool settings.
-func DefaultPoolConfig() PoolConfig {
-	return PoolConfig{
-		MaxOpenConnections:    25,
-		MaxIdleConnections:    25,
-		ConnectionMaxLifetime: time.Hour,
-		ConnectionMaxIdleTime: 5 * time.Minute,
-	}
-}
-
-// HighPerformancePoolConfig returns optimized settings for high-performance workloads.
-func HighPerformancePoolConfig() PoolConfig {
-	return PoolConfig{
-		MaxOpenConnections:    100,
-		MaxIdleConnections:    50,
-		ConnectionMaxLifetime: 30 * time.Minute,
-		ConnectionMaxIdleTime: 1 * time.Minute,
-	}
-}
-
-// LowResourcePoolConfig returns optimized settings for resource-constrained environments.
-func LowResourcePoolConfig() PoolConfig {
-	return PoolConfig{
-		MaxOpenConnections:    5,
-		MaxIdleConnections:    2,
-		ConnectionMaxLifetime: 2 * time.Hour,
-		ConnectionMaxIdleTime: 10 * time.Minute,
-	}
-}
-
-// Pool extension methods - delegate to PoolService
-
-// ConfigureConnectionPool updates the database connection pool settings.
-func (s *Service) ConfigureConnectionPool(config PoolConfig) error {
-	return NewPoolService(s).ConfigureConnectionPool(config)
-}
-
-// GetConnectionPoolConfig returns the current connection pool configuration.
-func (s *Service) GetConnectionPoolConfig() (*PoolConfig, error) {
-	return NewPoolService(s).GetConnectionPoolConfig()
-}
-
-// OptimizeConnectionPool automatically adjusts connection pool settings based on current usage.
-func (s *Service) OptimizeConnectionPool() error {
-	return NewPoolService(s).OptimizeConnectionPool()
-}
-
-// ResetConnectionPool resets the connection pool to default settings.
-func (s *Service) ResetConnectionPool() error {
-	return NewPoolService(s).ResetConnectionPool()
 }
 
 // ============================================================================
@@ -1015,18 +1047,168 @@ func (s *Service) logAudit(ctx context.Context, entry *AuditEntry) error {
 // Transaction extension methods - delegate to TransactionService
 
 // AssignDirect assigns a role to a user without pre-checks for better performance.
+// This method bypasses GetUserRoles calls and handles duplicate key constraints gracefully.
 func (s *Service) AssignDirect(ctx context.Context, userID, role, scopeType, scopeID string) error {
-	return NewTransactionService(s).AssignDirect(ctx, userID, role, scopeType, scopeID)
+	// Validate role exists for scope
+	if err := s.registry.ValidateRole(role, scopeType); err != nil {
+		return err
+	}
+
+	// Check if actor can assign this role
+	actorID := GetActorID(ctx)
+	if actorID == "" {
+		return NewError(ErrNoActorID, "actor ID required for role assignment")
+	}
+
+	// Create assignment
+	assignment := &RoleAssignment{
+		UserID:    userID,
+		Role:      role,
+		ScopeType: scopeType,
+		ScopeID:   scopeID,
+	}
+
+	// Direct assignment with conflict resolution
+	result, err := s.db.NewInsert().
+		Model(assignment).
+		On("CONFLICT (user_id, role, scope_type, scope_id) DO NOTHING").
+		Exec(ctx)
+
+	err = dbkit.WithErr(result, err, "CreateRoleAssignmentDirect").Err()
+	if err != nil {
+		return NewError(ErrDatabaseError, "failed to create role assignment").
+			WithScope(scopeType, scopeID).
+			WithRole(role).
+			WithUser(userID)
+	}
+
+	// Check if assignment was actually made (not a duplicate)
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		// Role already exists - this is not an error for AssignDirect
+		return NewError(ErrRoleAlreadyAssigned, "user already has this role").
+			WithScope(scopeType, scopeID).
+			WithRole(role).
+			WithUser(userID)
+	}
+
+	// Create audit log entry (simplified)
+	audit := GetAuditContext(ctx)
+	entry := &AuditEntry{
+		ActorID:      actorID,
+		Action:       AuditActionAssigned,
+		TargetUserID: userID,
+		Role:         role,
+		ScopeType:    scopeType,
+		ScopeID:      scopeID,
+		IPAddress:    audit.IPAddress,
+		UserAgent:    audit.UserAgent,
+		RequestID:    audit.RequestID,
+	}
+
+	_ = s.logAudit(ctx, entry) // Log error but don't fail the assignment
+
+	return nil
 }
 
 // AssignWithRetry assigns a role to a user with automatic retry for transient errors.
 func (s *Service) AssignWithRetry(ctx context.Context, userID, role, scopeType, scopeID string) error {
-	return NewTransactionService(s).AssignWithRetry(ctx, userID, role, scopeType, scopeID)
+	return s.assignWithRetry(ctx, userID, role, scopeType, scopeID, 3)
+}
+
+// assignWithRetry is the internal implementation of retry logic with configurable attempts.
+func (s *Service) assignWithRetry(ctx context.Context, userID, role, scopeType, scopeID string, maxAttempts int) error {
+	var lastErr error
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		err := s.AssignDirect(ctx, userID, role, scopeType, scopeID)
+		if err == nil {
+			// Success - record metrics
+			if s.txMonitor != nil {
+				s.txMonitor.recordTransaction(0, true)
+			}
+			return nil
+		}
+
+		lastErr = err
+
+		// Don't retry on non-transient errors
+		if !isTransientTransactionError(err) {
+			if s.txMonitor != nil {
+				s.txMonitor.recordTransaction(0, false)
+			}
+			return err
+		}
+
+		// If this is the last attempt, don't wait
+		if attempt == maxAttempts-1 {
+			break
+		}
+
+		// Exponential backoff with jitter
+		backoff := time.Duration(1<<uint(attempt)) * time.Second
+		jitter := time.Duration(float64(backoff) * 0.1 * (0.5 + rand.Float64()))
+		time.Sleep(backoff + jitter)
+	}
+
+	// Record failure metrics
+	if s.txMonitor != nil {
+		s.txMonitor.recordTransaction(0, false)
+	}
+
+	return lastErr
 }
 
 // AssignMultipleWithRetry assigns multiple roles with automatic retry for transient errors.
 func (s *Service) AssignMultipleWithRetry(ctx context.Context, assignments []RoleAssignment) error {
-	return NewTransactionService(s).AssignMultipleWithRetry(ctx, assignments)
+	return s.assignMultipleWithRetry(ctx, assignments, 3)
+}
+
+// assignMultipleWithRetry is the internal implementation of retry logic for bulk operations.
+func (s *Service) assignMultipleWithRetry(ctx context.Context, assignments []RoleAssignment, maxAttempts int) error {
+	var lastErr error
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		err := s.AssignMultiple(ctx, assignments)
+		if err == nil {
+			// Success - record metrics
+			if s.txMonitor != nil {
+				s.txMonitor.recordTransaction(0, true)
+			}
+			return nil
+		}
+
+		lastErr = err
+
+		// Don't retry on non-transient errors
+		if !isTransientTransactionError(err) {
+			if s.txMonitor != nil {
+				s.txMonitor.recordTransaction(0, false)
+			}
+			return err
+		}
+
+		// If this is the last attempt, don't wait
+		if attempt == maxAttempts-1 {
+			break
+		}
+
+		// Exponential backoff with jitter
+		backoff := time.Duration(1<<uint(attempt)) * time.Second
+		jitter := time.Duration(float64(backoff) * 0.1 * (0.5 + rand.Float64()))
+		time.Sleep(backoff + jitter)
+	}
+
+	// Record failure metrics
+	if s.txMonitor != nil {
+		s.txMonitor.recordTransaction(0, false)
+	}
+
+	return lastErr
 }
 
 // GetTransactionMetrics returns the current transaction performance metrics.
@@ -1060,4 +1242,60 @@ func (s *Service) IsTransactionHealthy() bool {
 	}
 
 	return true
+}
+
+// isTransientTransactionError checks if an error is transient and can be retried
+func isTransientTransactionError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check for specific database errors that are transient
+	errStr := err.Error()
+
+	// PostgreSQL transient errors
+	transientErrors := []string{
+		"connection",
+		"timeout",
+		"deadlock",
+		"lock wait timeout",
+		"connection refused",
+		"connection reset",
+		"broken pipe",
+		"temporary failure",
+		"try again",
+		"resource temporarily unavailable",
+	}
+
+	for _, transientErr := range transientErrors {
+		if contains(errStr, transientErr) {
+			return true
+		}
+	}
+
+	// Check for context errors (cancellation, deadline)
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+
+	return false
+}
+
+// contains checks if a string contains a substring (case-insensitive)
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr ||
+		(len(s) > len(substr) &&
+			(s[:len(substr)] == substr ||
+				s[len(s)-len(substr):] == substr ||
+				findSubstring(s, substr))))
+}
+
+// findSubstring checks if substr exists in s
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

@@ -181,25 +181,196 @@ This plan ensures RoleKit properly utilizes the updated `github.com/fernandezvar
 
 ---
 
-### Story 8: Add Comprehensive Testing with dbkit Test Utilities
+### Story 8: Sample Application Testing with Real Database Integration
 
 **As a** developer maintaining RoleKit  
-**I want to** have comprehensive test coverage for dbkit integration  
-**So that** I can ensure reliability and catch regressions
+**I want to** have a comprehensive sample application that tests all RoleKit features with a real PostgreSQL database  
+**So that** I can verify the library works correctly in production-like scenarios and demonstrate its capabilities
 
 **Acceptance Criteria:**
 
-1. Add unit tests for all dbkit integration points
-2. Add integration tests with real database
-3. Add performance benchmarks for database operations
-4. Add error scenario testing
+1. Create a sample application that demonstrates all RoleKit features
+2. Set up PostgreSQL 18 database configuration using reference files
+3. Add comprehensive role assignments and test scenarios
+4. Test all major features: roles, permissions, transactions, health monitoring, connection pooling, migrations
+5. Include performance testing and load scenarios
+6. Provide clear documentation and usage examples
 
 **Implementation Tasks:**
 
-1. **Implement the user story** - Add comprehensive testing suite
-2. **Document all functions** - Document test utilities and testing patterns
-3. **Update README.md** - Add testing examples and contribution guidelines
-4. **Add tests** - Implement comprehensive test coverage
+1. **Create sample application structure** - Build a complete test application
+2. **Set up database configuration** - Use reference files for PostgreSQL 18 setup
+3. **Implement test scenarios** - Create comprehensive role and permission tests
+4. **Add performance testing** - Test connection pooling and optimization
+5. **Document sample application** - Add usage documentation and examples
+6. **Ensure tests pass** - Verify all scenarios work correctly
+7. Ensure 'make test' and 'make lint' passes without errors before start with other task
+
+---
+
+### Story 9: Fix Transaction Context Propagation in RoleKit
+
+**As a** developer using RoleKit  
+**I want to** have consistent transaction handling across all role operations  
+**So that** role assignments work reliably within transactions without "transaction already committed" errors
+
+**Acceptance Criteria:**
+
+1. All database operations within a single method use the same transaction context
+2. No "transaction already committed" errors during role assignments
+3. Role assignments work correctly within nested transactions
+4. Transaction context is properly propagated through all internal method calls
+
+**Implementation Tasks:**
+
+1. **Implement the user story** - Fix Assign() method to use single transaction context
+2. **Document all functions** - Document transaction context handling patterns
+3. **Update README.md** - Add transaction best practices and examples
+4. **Add tests** - Test transaction context propagation and nested transactions
+5. Ensure 'make test' and 'make lint' passes without errors before start with other task
+
+---
+
+### Story 10: Add Transaction-Safe Role Assignment Methods
+
+**As a** system administrator  
+**I want to** have atomic role assignments that never leave the database in an inconsistent state  
+**So that** concurrent role assignments don't conflict and failed assignments don't create partial data
+
+**Acceptance Criteria:**
+
+1. Role assignment is fully atomic (all or nothing)
+2. Concurrent role assignments don't conflict
+3. Failed assignments don't create partial data
+4. Audit trail is maintained for all operations
+5. High-performance direct assignment method available
+
+**Implementation Tasks:**
+
+1. **Implement the user story** - Add AssignDirect() method for atomic assignments
+2. **Document all functions** - Document atomic assignment patterns and performance benefits
+3. **Update README.md** - Add atomic assignment examples and concurrency patterns
+4. **Add tests** - Test atomic assignments, concurrent access, and failure scenarios
+5. Ensure 'make test' and 'make lint' passes without errors before start with other task
+
+---
+
+### Story 11: Implement Proper Bulk Operations with Transaction Safety
+
+**As a** developer using RoleKit  
+**I want to** efficiently assign multiple roles in a single operation  
+**So that** I can optimize performance for large-scale role management operations
+
+**Acceptance Criteria:**
+
+1. Bulk assignments work within a single transaction
+2. Performance is optimized for large numbers of assignments
+3. Partial failures don't corrupt data
+4. Proper error reporting for failed assignments
+5. Batch insert with proper error handling
+
+**Implementation Tasks:**
+
+1. **Implement the user story** - Fix AssignMultiple() to use proper transaction handling
+2. **Document all functions** - Document bulk operation patterns and performance considerations
+3. **Update README.md** - Add bulk operation examples and best practices
+4. **Add tests** - Test bulk operations, partial failures, and performance benchmarks
+5. Ensure 'make test' and 'make lint' passes without errors before start with other task
+
+---
+
+### Story 12: Add Transaction Error Recovery and Retry Logic
+
+**As a** system administrator  
+**I want to** have automatic recovery from transient transaction errors  
+**So that** the system is resilient to temporary database issues
+
+**Acceptance Criteria:**
+
+1. Automatic retry for transient transaction errors
+2. Exponential backoff for failed transactions
+3. Clear error categorization (transient vs permanent)
+4. Monitoring and alerting for transaction failures
+5. Configurable retry policies
+
+**Implementation Tasks:**
+
+1. **Implement the user story** - Add error categorization and retry logic to transaction operations
+2. **Document all functions** - Document error types, retry patterns, and configuration options
+3. **Update README.md** - Add error handling examples and resilience patterns
+4. **Add tests** - Test retry logic, error categorization, and failure scenarios
+5. Ensure 'make test' and 'make lint' passes without errors before start with other task
+
+---
+
+### Story 13: Fix GetUserRoles Transaction Handling
+
+**As a** developer using RoleKit  
+**I want to** GetUserRoles to work correctly within transaction contexts  
+**So that** I can reliably check user permissions within transactions
+
+**Acceptance Criteria:**
+
+1. GetUserRoles respects transaction context
+2. No transaction state conflicts
+3. Consistent read behavior within transactions
+4. Proper isolation level handling
+5. Performance optimized for transaction contexts
+
+**Implementation Tasks:**
+
+1. **Implement the user story** - Fix GetUserRoles() to handle transaction context properly
+2. **Document all functions** - Document transaction-aware query patterns
+3. **Update README.md** - Add transaction-aware query examples
+4. **Add tests** - Test GetUserRoles within various transaction scenarios
+5. Ensure 'make test' and 'make lint' passes without errors before start with other task
+
+---
+
+### Story 14: Add Transaction Monitoring and Observability
+
+**As a** system administrator  
+**I want to** have visibility into transaction performance and failures  
+**So that** I can monitor system health and identify performance bottlenecks
+
+**Acceptance Criteria:**
+
+1. Transaction success/failure metrics
+2. Transaction duration tracking
+3. Deadlock detection and reporting
+4. Performance alerts for slow transactions
+5. Comprehensive transaction logging
+
+**Implementation Tasks:**
+
+1. **Implement the user story** - Add transaction metrics collection and reporting
+2. **Document all functions** - Document monitoring capabilities and metric interpretation
+3. **Update README.md** - Add monitoring setup examples and alerting patterns
+4. **Add tests** - Test metric collection, reporting, and alerting scenarios
+5. Ensure 'make test' and 'make lint' passes without errors before start with other task
+
+---
+
+### Story 15: Comprehensive Transaction Testing and Validation
+
+**As a** developer maintaining RoleKit  
+**I want to** have comprehensive test coverage for all transaction scenarios  
+**So that** I can ensure transaction reliability and prevent regressions
+
+**Acceptance Criteria:**
+
+1. Unit tests for all transaction methods
+2. Integration tests with real PostgreSQL transactions
+3. Performance tests for transaction overhead
+4. Concurrent access pattern testing
+5. Deadlock and failure scenario testing
+
+**Implementation Tasks:**
+
+1. **Implement the user story** - Create comprehensive transaction test suite
+2. **Document all functions** - Document test scenarios and validation patterns
+3. **Update README.md** - Add testing examples and validation guidelines
+4. **Add tests** - Implement all transaction test scenarios
 5. Ensure 'make test' and 'make lint' passes without errors before start with other task
 
 ---
@@ -219,11 +390,15 @@ For each user story, the following rules must be followed:
 - All dbkit integrations use the latest version and best practices
 - Error handling is comprehensive and follows dbkit patterns
 - Transaction support is available for atomic operations
+- Transaction context propagation works correctly without errors
 - Health monitoring provides actionable insights
 - Database operations are optimized and type-safe
 - Migration system is robust and provides good visibility
 - Connection pooling is configurable and monitorable
 - Test coverage is comprehensive and reliable
+- Transaction operations are atomic, reliable, and performant
+- Error recovery and retry logic handles transient failures
+- Transaction monitoring provides operational visibility
 
 ## Timeline Estimate
 
@@ -235,17 +410,25 @@ For each user story, the following rules must be followed:
 - **Story 6**: 2-3 days (migration enhancement)
 - **Story 7**: 2-3 days (connection pooling)
 - **Story 8**: 3-4 days (comprehensive testing)
+- **Story 9**: 2-3 days (transaction context propagation)
+- **Story 10**: 2-3 days (atomic role assignments)
+- **Story 11**: 2-3 days (bulk operations)
+- **Story 12**: 2-3 days (error recovery and retry)
+- **Story 13**: 1-2 days (GetUserRoles transaction handling)
+- **Story 14**: 2-3 days (transaction monitoring)
+- **Story 15**: 2-3 days (comprehensive transaction testing)
 
-**Total Estimated Time**: 18-26 days
+**Total Estimated Time**: 30-44 days
 
 ## Risk Assessment
 
-- **Low Risk**: Stories 1, 5, 8 (updates and optimizations)
-- **Medium Risk**: Stories 2, 4, 6, 7 (enhancements and new features)
-- **High Risk**: Story 3 (transaction support requires careful design)
+- **Low Risk**: Stories 1, 5, 8, 13 (updates and optimizations)
+- **Medium Risk**: Stories 2, 4, 6, 7, 9, 10, 11, 12, 14 (enhancements and new features)
+- **High Risk**: Stories 3, 15 (transaction support requires careful design)
 
 ## Dependencies
 
 - All stories depend on Story 1 (dbkit update)
-- Story 3 (transactions) may affect other stories
+- Stories 9-15 depend on Stories 3 (basic transaction support)
 - Story 8 (testing) should be done throughout the process
+- Stories 9-15 should be implemented in order as they build on each other
