@@ -70,7 +70,7 @@ start: ## Start PostgreSQL database for testing
 	@echo "$(GREEN)Starting PostgreSQL 18...$(NC)"
 	$(COMPOSE_CMD) -f docker-compose.yml up -d
 	@echo "$(YELLOW)Waiting for database to be ready...$(NC)"
-	@timeout 60 bash -c 'until $$(CONTAINER_RUNTIME) exec rolekit-postgres-18 pg_isready -U postgres; do sleep 1; done'
+	@timeout 60 bash -c 'until $(CONTAINER_RUNTIME) exec rolekit-postgres-18 pg_isready -U postgres; do sleep 1; done'
 	@echo "$(GREEN)PostgreSQL is ready!$(NC)"
 	@echo "$(YELLOW)Database URL: $(TEST_DATABASE_URL)$(NC)"
 

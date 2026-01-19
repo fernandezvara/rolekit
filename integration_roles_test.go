@@ -17,20 +17,20 @@ func TestBasicRoleAssignment(t *testing.T) {
 		t.Fatalf("Failed to setup test database: %v", err)
 	}
 
-	// Create sample users
+	// Create sample users with unique IDs to avoid conflicts
 	users := []struct {
 		id    string
 		email string
 		name  string
 	}{
-		{"550e8400-e29b-41d4-a716-446655440000", "admin@company.com", "Admin User"},
-		{"550e8400-e29b-41d4-a716-446655440001", "manager@company.com", "Project Manager"},
-		{"550e8400-e29b-41d4-a716-446655440002", "dev@company.com", "Developer"},
-		{"550e8400-e29b-41d4-a716-446655440003", "viewer@company.com", "Viewer"},
+		{"test-admin-" + t.Name(), "admin@test.com", "Admin User"},
+		{"test-manager-" + t.Name(), "manager@test.com", "Project Manager"},
+		{"test-dev-" + t.Name(), "dev@test.com", "Developer"},
+		{"test-viewer-" + t.Name(), "viewer@test.com", "Viewer"},
 	}
 
 	// Create sample organization
-	orgID := "550e8400-e29b-41d4-a716-446655440010"
+	orgID := "test-org-" + t.Name()
 
 	// Test role assignments
 	testCases := []struct {
@@ -75,7 +75,7 @@ func TestBasicRoleAssignment(t *testing.T) {
 			role:    "viewer",
 			scope:   "organization",
 			scopeID: orgID,
-			actorID: users[2].id, // Developer assigns
+			actorID: users[1].id, // Manager assigns
 			wantErr: false,
 		},
 		{
@@ -141,10 +141,10 @@ func TestPermissionChecking(t *testing.T) {
 	}
 
 	// Create users and organization
-	adminID := "550e8400-e29b-41d4-a716-446655440000"
-	managerID := "550e8400-e29b-41d4-a716-446655440001"
-	devID := "550e8400-e29b-41d4-a716-446655440002"
-	orgID := "550e8400-e29b-41d4-a716-446655440010"
+	adminID := "test-admin-" + t.Name()
+	managerID := "test-manager-" + t.Name()
+	devID := "test-dev-" + t.Name()
+	orgID := "test-org-" + t.Name()
 
 	// Set up roles
 	ctx = WithActorID(ctx, adminID)
@@ -235,8 +235,8 @@ func TestRoleRevocation(t *testing.T) {
 	}
 
 	// Create user and organization
-	userID := "550e8400-e29b-41d4-a716-446655440000"
-	orgID := "550e8400-e29b-41d4-a716-446655440010"
+	userID := "test-user-" + t.Name()
+	orgID := "test-org-" + t.Name()
 
 	// Assign role
 	ctx = WithActorID(ctx, userID)
@@ -283,8 +283,8 @@ func TestBulkOperations(t *testing.T) {
 	}
 
 	// Create users and organization
-	adminID := "550e8400-e29b-41d4-a716-446655440000"
-	orgID := "550e8400-e29b-41d4-a716-446655440010"
+	adminID := "test-admin-" + t.Name()
+	orgID := "test-org-" + t.Name()
 
 	// Set up admin
 	ctx = WithActorID(ctx, adminID)

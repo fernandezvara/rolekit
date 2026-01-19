@@ -2,6 +2,7 @@ package rolekit
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -198,8 +199,8 @@ func TestPerformanceIntegration(t *testing.T) {
 	}
 
 	// Create test data
-	userID := "550e8400-e29b-41d4-a716-446655440000"
-	orgID := "550e8400-e29b-41d4-a716-446655440010"
+	userID := "test-user-" + t.Name() + "-" + fmt.Sprintf("%d", time.Now().UnixNano())
+	orgID := "test-org-" + t.Name() + "-" + fmt.Sprintf("%d", time.Now().UnixNano())
 
 	// Set up admin
 	ctx = WithActorID(ctx, userID)

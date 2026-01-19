@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fernandezvara/dbkit"
+	_ "github.com/uptrace/bun/driver/pgdriver"
 )
 
 // isDatabaseAvailable checks if the test database is available
@@ -15,14 +16,14 @@ func isDatabaseAvailable() bool {
 	// Get database URL from environment
 	dbURL := os.Getenv("TEST_DATABASE_URL")
 	if dbURL == "" {
-		return false
+		dbURL = getTestDatabaseURL()
 	}
 
 	// Try to connect with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	db, err := sql.Open("postgres", dbURL)
+	db, err := sql.Open("pg", dbURL)
 	if err != nil {
 		return false
 	}

@@ -31,7 +31,7 @@ func (s *Service) IsHealthy(ctx context.Context) bool {
 
 	// If we're in a transaction or have a different type, try to ping
 	var count int
-	err := s.db.NewSelect().Model((*struct{})(nil)).ColumnExpr("1").Limit(1).Scan(ctx, &count)
+	err := s.db.NewSelect().ColumnExpr("1").Limit(1).Scan(ctx, &count)
 	return err == nil
 }
 
@@ -40,5 +40,5 @@ func (s *Service) IsHealthy(ctx context.Context) bool {
 func (s *Service) Ping(ctx context.Context) error {
 	// Use a simple query to test connectivity
 	var result int
-	return s.db.NewSelect().Model((*struct{})(nil)).ColumnExpr("1").Limit(1).Scan(ctx, &result)
+	return s.db.NewSelect().ColumnExpr("1").Limit(1).Scan(ctx, &result)
 }
