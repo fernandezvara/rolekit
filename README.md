@@ -1455,21 +1455,6 @@ if !valid {
 }
 ```
 
-### Migration Validation
-
-Validate migrations before deployment:
-
-```go
-// Validate all migrations are properly formatted
-err := service.ValidateMigrations()
-if err != nil {
-    log.Printf("Migration validation failed: %v", err)
-    return
-}
-
-log.Println("All migrations are valid and ready for deployment")
-```
-
 ### Migration Rollback
 
 Rollback to a specific migration (requires manual rollback SQL):
@@ -1637,18 +1622,13 @@ Before deploying to production:
 
 ```go
 func preDeploymentChecks(ctx context.Context, service *rolekit.Service) error {
-    // 1. Validate migrations
-    if err := service.ValidateMigrations(); err != nil {
-        return fmt.Errorf("migration validation failed: %w", err)
-    }
-
-    // 2. Check current status
+    // 1. Check current status
     status, err := service.GetMigrationStatus(ctx)
     if err != nil {
         return fmt.Errorf("failed to get migration status: %w", err)
     }
 
-    // 3. Verify checksums of applied migrations
+    // 2. Verify checksums of applied migrations
     if status.Applied > 0 {
         valid, err := service.VerifyMigrationChecksums(ctx)
         if err != nil {
@@ -1659,7 +1639,7 @@ func preDeploymentChecks(ctx context.Context, service *rolekit.Service) error {
         }
     }
 
-    // 4. Dry run migrations (if supported)
+    // 3. Dry run migrations (if supported)
     // This would be a custom implementation
     log.Printf("Pre-deployment checks passed. Ready to apply %d migrations.", status.Pending)
 
