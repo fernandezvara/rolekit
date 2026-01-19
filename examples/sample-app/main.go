@@ -190,12 +190,12 @@ func (app *SampleApp) runMigrations(ctx context.Context) error {
 	log.Println("✅ Sample application tables created")
 
 	// Run RoleKit migrations
-	result, err := app.service.RunMigrations(ctx)
+	result, err := app.db.Migrate(ctx, app.service.Migrations())
 	if err != nil {
 		return fmt.Errorf("migration execution failed: %w", err)
 	}
 
-	log.Printf("✅ Migrations completed: %d applied", result)
+	log.Printf("✅ Migrations completed: %d applied", len(result.Applied))
 
 	// Skip scope hierarchy for now - focus on basic functionality
 	log.Println("ℹ️  Skipping scope hierarchy setup for now")
