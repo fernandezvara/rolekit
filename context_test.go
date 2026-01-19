@@ -450,15 +450,17 @@ func TestContextEdgeCases(t *testing.T) {
 
 	t.Run("Nil context", func(t *testing.T) {
 		// These should not panic, just return empty values
-		// assert.Equal(t, "", GetUserID(nil)) // This panics
-		// assert.Equal(t, "", GetActorID(nil)) // This panics
-		// assert.Equal(t, "", GetIPAddress(nil)) // This panics
-		// assert.Equal(t, "", GetUserAgent(nil)) // This panics
-		// assert.Equal(t, "", GetRequestID(nil)) // This panics
-		// assert.Nil(t, GetChecker(nil)) // This panics
+		ctx := context.TODO()
+		assert.Equal(t, "", GetUserID(ctx))
+		assert.Equal(t, "", GetActorID(ctx))
+		assert.Equal(t, "", GetIPAddress(ctx))
+		assert.Equal(t, "", GetUserAgent(ctx))
+		assert.Equal(t, "", GetRequestID(ctx))
+		assert.Nil(t, GetChecker(ctx))
 
 		// MustGetUserID should panic with nil context
 		assert.Panics(t, func() {
+			//nolint:staticcheck // Testing nil context behavior intentionally
 			MustGetUserID(nil)
 		})
 	})

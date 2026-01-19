@@ -224,6 +224,7 @@ func TestMiddlewareScopeExtractors(t *testing.T) {
 				scopeType:  "organization",
 				contextKey: "orgID",
 				setupContext: func(ctx context.Context) context.Context {
+					//nolint:staticcheck // Using string key for context
 					return context.WithValue(ctx, "orgID", "org123")
 				},
 				expectError: false,
