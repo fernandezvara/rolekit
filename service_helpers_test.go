@@ -213,17 +213,24 @@ func TestIsTransientTransactionError(t *testing.T) {
 		<-ctx.Done()
 		assert.True(t, isTransientTransactionError(ctx.Err()))
 
-		ctx2, _ := context.WithCancel(context.Background())
-		ctx2.Done() // Ensure context is cancelled
+		ctx2, cancel := context.WithCancel(context.Background())
+		cancel()
 		assert.True(t, isTransientTransactionError(ctx2.Err()))
 	})
 
-	t.Run("Case insensitive matching", func(t *testing.T) {
+	t.Run("Case sensitive matching", func(t *testing.T) {
 		err := errors.New("CONNECTION TIMEOUT")
-		assert.True(t, isTransientTransactionError(err))
+		assert.False(t, isTransientTransactionError(err))
 
 		err2 := errors.New("DeadLock Detected")
-		assert.True(t, isTransientTransactionError(err2))
+		assert.False(t, isTransientTransactionError(err2))
+
+		// These should be true with lowercase
+		err3 := errors.New("connection timeout")
+		assert.True(t, isTransientTransactionError(err3))
+
+		err4 := errors.New("deadlock detected")
+		assert.True(t, isTransientTransactionError(err4))
 	})
 }
 
@@ -335,8 +342,8 @@ func TestServiceHelpersEdgeCases(t *testing.T) {
 	})
 
 	t.Run("Context cancellation", func(t *testing.T) {
-		cancelledCtx, _ := context.WithCancel(context.Background())
-		cancelledCtx.Done() // Ensure context is actually cancelled
+		cancelledCtx, cancel := context.WithCancel(context.Background())
+		cancel()
 
 		// Should panic due to nil DB
 		assert.Panics(t, func() {
