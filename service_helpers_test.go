@@ -345,9 +345,12 @@ func TestServiceHelpersEdgeCases(t *testing.T) {
 		cancelledCtx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		// Should panic due to nil DB
+		// Add actor ID to context to bypass the actor ID check
+		ctxWithActor := WithActorID(cancelledCtx, "actor1")
+
+		// Should panic due to nil DB when actor ID is present
 		assert.Panics(t, func() {
-			service.AssignDirect(cancelledCtx, "user1", "admin", "organization", "org1")
+			service.AssignDirect(ctxWithActor, "user1", "admin", "organization", "org1")
 		})
 	})
 
