@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test (Go ${{ matrix.go }}, PostgreSQL ${{ matrix.postgres }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        go: ["1.25"]
+        postgres: ["17", "18"]
+      fail-fast: false
+
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: rolekit_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        env:
+          TEST_DATABASE_URL: postgres://postgres:password@localhost:5432/rolekit_test?sslmode=disable
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        if: matrix.go == '1.25' && matrix.postgres == '18'
+        with:
+          files: ./coverage.out
+          fail_ci_if_error: false
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go 1.25.5
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.25.5
+
+      - name: Install golangci-lint (built with Go 1.25.5)
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0
+          echo "$GOPATH/bin" >> $GITHUB_PATH
+        env:
+          GOPATH: ${{ runner.tool_cache }}/go
+
+      - name: Run golangci-lint
+        run: golangci-lint run
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Build
+        run: go build -v ./...
