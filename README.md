@@ -548,6 +548,77 @@ if errors.As(err, &roleErr) {
 }
 ```
 
+### Automatic Error Recovery and Retry
+
+RoleKit provides automatic retry logic for transient errors with exponential backoff:
+
+```go
+// Automatic retry for transient errors
+err := service.AssignWithRetry(ctx, userID, role, scopeType, scopeID)
+if err != nil {
+    // Failed after 3 retry attempts with exponential backoff
+    log.Printf("Assignment failed permanently: %v", err)
+}
+
+// Bulk operations with retry
+assignments := []rolekit.RoleAssignment{
+    {UserID: "user1", Role: "admin", ScopeType: "organization", ScopeID: "org1"},
+    {UserID: "user2", Role: "member", ScopeType: "organization", ScopeID: "org1"},
+}
+
+err := service.AssignMultipleWithRetry(ctx, assignments)
+if err != nil {
+    log.Printf("Bulk assignment failed after retries: %v", err)
+}
+```
+
+#### Transient vs Permanent Errors
+
+RoleKit automatically categorizes errors:
+
+**Transient Errors (automatically retried):**
+
+- Connection issues
+- Deadlocks
+- Timeouts
+- Transaction serialization conflicts
+
+**Permanent Errors (fail immediately):**
+
+- Validation errors
+- Permission denied
+- Invalid scope or role
+- Foreign key violations
+
+#### Custom Retry Logic
+
+You can implement custom retry patterns:
+
+```go
+func assignWithCustomRetry(service *rolekit.Service, ctx context.Context, userID, role, scopeType, scopeID string, maxRetries int) error {
+    for attempt := 0; attempt < maxRetries; attempt++ {
+        err := service.Assign(ctx, userID, role, scopeType, scopeID)
+        if err == nil {
+            return nil // Success
+        }
+
+        // Check if error is retryable
+        var rolekitErr *rolekit.Error
+        if errors.As(err, &rolekitErr) {
+            if rolekitErr.Err == rolekit.ErrDatabaseError {
+                // Exponential backoff
+                backoff := time.Duration(math.Pow(2, float64(attempt))) * time.Second
+                time.Sleep(backoff)
+                continue
+            }
+        }
+
+        return err // Non-retryable error
+    }
+    return fmt.Errorf("failed after %d attempts", maxRetries)
+}
+```
+
 ## Transactions
 
 RoleKit provides transaction support for atomic operations. All role operations within a transaction are either committed together or rolled back if any operation fails.
@@ -742,6 +813,123 @@ if err != nil {
     log.Printf("Transaction rolled back: %v", err)
 }
 ```
+
+### High-Performance Direct Assignment
+
+For scenarios where you need maximum performance and don't need pre-checks:
+
+```go
+// Direct assignment without pre-checks - handles duplicates gracefully
+err := service.AssignDirect(ctx, "user1", "admin", "organization", "org1")
+if err != nil {
+    if rolekit.IsRoleAlreadyAssigned(err) {
+        log.Println("User already has this role (not an error)")
+    } else {
+        log.Printf("Assignment failed: %v", err)
+    }
+}
+```
+
+### Automatic Retry with Error Recovery
+
+For resilient operations that automatically retry on transient errors:
+
+```go
+// Automatic retry with exponential backoff
+err := service.AssignWithRetry(ctx, "user1", "admin", "organization", "org1")
+if err != nil {
+    log.Printf("Assignment failed after retries: %v", err)
+}
+
+// Bulk operations with retry
+assignments := []rolekit.RoleAssignment{
+    {UserID: "user1", Role: "admin", ScopeType: "organization", ScopeID: "org1"},
+    {UserID: "user2", Role: "member", ScopeType: "organization", ScopeID: "org1"},
+}
+
+err := service.AssignMultipleWithRetry(ctx, assignments)
+if err != nil {
+    log.Printf("Bulk assignment failed after retries: %v", err)
+}
+```
+
+### Transaction Monitoring and Metrics
+
+Monitor transaction performance and health:
+
+```go
+// Get transaction metrics
+metrics := service.GetTransactionMetrics()
+log.Printf("Transactions: %d total, %d successful, %d failed",
+    metrics.TotalTransactions, metrics.SuccessfulTransactions, metrics.FailedTransactions)
+log.Printf("Average duration: %v", metrics.AverageDuration)
+
+// Check transaction health
+if service.IsTransactionHealthy() {
+    log.Println("Transaction system is healthy")
+} else {
+    log.Println("Transaction system needs attention")
+}
+
+// Reset metrics (useful for monitoring intervals)
+service.ResetTransactionMetrics()
+```
+
+### Bulk Operations with Transaction Safety
+
+Efficient bulk operations with proper error handling:
+
+```go
+assignments := []rolekit.RoleAssignment{
+    {UserID: "user1", Role: "admin", ScopeType: "organization", ScopeID: "org1"},
+    {UserID: "user2", Role: "member", ScopeType: "organization", ScopeID: "org1"},
+    {UserID: "user3", Role: "viewer", ScopeType: "organization", ScopeID: "org1"},
+}
+
+// Atomic bulk assignment - all succeed or all fail together
+err := service.AssignMultiple(ctx, assignments)
+if err != nil {
+    log.Printf("Bulk assignment failed: %v", err)
+    // Transaction is automatically rolled back on any failure
+}
+```
+
+### Error Recovery Patterns
+
+RoleKit automatically categorizes errors and provides recovery mechanisms:
+
+```go
+// Transient errors (connection issues, deadlocks, timeouts) are automatically retried
+// Permanent errors (validation errors, permission denied) fail immediately
+
+// Check error types for custom handling
+err := service.Assign(ctx, userID, role, scopeType, scopeID)
+if err != nil {
+    // RoleKit wraps errors with context
+    var rolekitErr *rolekit.Error
+    if errors.As(err, &rolekitErr) {
+        switch rolekitErr.Err {
+        case rolekit.ErrRoleAlreadyAssigned:
+            log.Println("User already has this role")
+        case rolekit.ErrCannotAssignRole:
+            log.Println("Insufficient permissions for assignment")
+        case rolekit.ErrDatabaseError:
+            log.Println("Database error - may be transient")
+        default:
+            log.Printf("Other error: %v", err)
+        }
+    }
+}
+```
+
+### Transaction Best Practices
+
+1. **Keep transactions short** - Minimize the time spent in transactions
+2. **Use appropriate isolation levels** - Default is good for most cases
+3. **Handle errors appropriately** - Distinguish between transient and permanent errors
+4. **Use direct assignment for performance** - When you don't need pre-checks
+5. **Monitor transaction health** - Use metrics to detect issues early
+6. **Use bulk operations** - For multiple assignments to the same scope
 
 ## Health Monitoring
 
