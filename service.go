@@ -940,17 +940,11 @@ func (s *Service) ConfigureConnectionPool(config PoolConfig) error {
 			return fmt.Errorf("database instance not available")
 		}
 
-		// bunDB is already the *sql.DB instance
-		sqlDB := bunDB
-		if sqlDB == nil {
-			return fmt.Errorf("SQL database not available")
-		}
-
-		// Set connection pool parameters
-		sqlDB.SetMaxOpenConns(config.MaxOpenConnections)
-		sqlDB.SetMaxIdleConns(config.MaxIdleConnections)
-		sqlDB.SetConnMaxLifetime(config.ConnectionMaxLifetime)
-		sqlDB.SetConnMaxIdleTime(config.ConnectionMaxIdleTime)
+		// Set connection pool parameters directly on the bunDB instance
+		bunDB.SetMaxOpenConns(config.MaxOpenConnections)
+		bunDB.SetMaxIdleConns(config.MaxIdleConnections)
+		bunDB.SetConnMaxLifetime(config.ConnectionMaxLifetime)
+		bunDB.SetConnMaxIdleTime(config.ConnectionMaxIdleTime)
 
 		log.Printf("Connection pool configured: MaxOpen=%d, MaxIdle=%d, MaxLifetime=%v, MaxIdleTime=%v",
 			config.MaxOpenConnections, config.MaxIdleConnections,
@@ -981,15 +975,9 @@ func (s *Service) GetConnectionPoolConfig() (*PoolConfig, error) {
 			return nil, fmt.Errorf("database instance not available")
 		}
 
-		// bunDB is already the *sql.DB instance
-		sqlDB := bunDB
-		if sqlDB == nil {
-			return nil, fmt.Errorf("SQL database not available")
-		}
-
 		return &PoolConfig{
-			MaxOpenConnections:    sqlDB.Stats().MaxOpenConnections,
-			MaxIdleConnections:    sqlDB.Stats().Idle, // Use Idle field instead
+			MaxOpenConnections:    bunDB.Stats().MaxOpenConnections,
+			MaxIdleConnections:    bunDB.Stats().Idle, // Use Idle field instead
 			ConnectionMaxLifetime: 0,                  // Not available in sql.DBStats
 			ConnectionMaxIdleTime: 0,                  // Not available in sql.DBStats
 		}, nil
