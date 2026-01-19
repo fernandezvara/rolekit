@@ -78,10 +78,15 @@ func (s *Service) SetScopeParent(ctx context.Context, scopeType, scopeID, parent
 		ParentScopeID:   parentScopeID,
 	}
 
-	result, err := s.db.NewInsert().Model(hierarchy).On("CONFLICT (scope_type, scope_id, parent_scope_type, parent_scope_id) DO NOTHING").Exec(ctx)
-	err = dbkit.WithErr(result, err, "SetScopeParent").Err()
+	// Try to insert, ignore if it already exists
+	result, err := s.db.NewInsert().Model(hierarchy).Exec(ctx)
 	if err != nil {
-		return err
+		// Check if it's a duplicate key error (PostgreSQL error code 23505)
+		if dbkit.IsDuplicate(err) {
+			// Already exists, just continue
+		} else {
+			return dbkit.WithErr(result, err, "SetScopeParent").Err()
+		}
 	}
 
 	// Update any existing role assignments with parent scope
