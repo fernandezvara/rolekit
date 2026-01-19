@@ -25,7 +25,6 @@ type MigrationManager interface {
 	GetMigrationStatus(ctx context.Context) (*MigrationStatus, error)
 	VerifyMigrationChecksums(ctx context.Context) (bool, error)
 	RollbackToMigration(ctx context.Context, targetMigrationID string) error
-	ValidateMigrations() error
 }
 
 // HealthMonitor defines the health monitoring interface

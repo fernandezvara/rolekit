@@ -23,8 +23,3 @@ func TestVerifyMigrationChecksums(t *testing.T) {
 func TestRollbackToMigration(t *testing.T) {
 	t.Skip("Database setup not implemented in this test environment")
 }
-
-// TestValidateMigrations tests migration validation
-func TestValidateMigrations(t *testing.T) {
-	t.Skip("Database setup not implemented in this test environment")
-}

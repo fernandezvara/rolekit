@@ -591,13 +591,6 @@ func TestMigrationSystem(t *testing.T) {
 	registry := NewRegistry()
 	_ = registry // Use the variable to avoid lint error
 
-	// Test migration validation
-	service := &Service{}
-	err := service.ValidateMigrations()
-	if err != nil {
-		t.Errorf("Migration validation failed: %v", err)
-	}
-
 	// Test connection pool configuration functions
 	config := DefaultPoolConfig()
 	if config.MaxOpenConnections == 0 {

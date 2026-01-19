@@ -308,11 +308,6 @@ func (s *Service) RollbackToMigration(ctx context.Context, targetMigrationID str
 	return NewMigrationService(s).RollbackToMigration(ctx, targetMigrationID)
 }
 
-// ValidateMigrations checks that all migrations are properly formatted and valid.
-func (s *Service) ValidateMigrations() error {
-	return NewMigrationService(s).ValidateMigrations()
-}
-
 // Health extension methods - delegate to HealthService
 
 // Health performs a comprehensive health check of the database connection.

@@ -160,20 +160,3 @@ func (ms *MigrationService) RollbackToMigration(ctx context.Context, targetMigra
 	}
 	return fmt.Errorf("migration support requires a dbkit.DBKit instance")
 }
-
-// ValidateMigrations validates all migration definitions.
-func (ms *MigrationService) ValidateMigrations() error {
-	migrations := ms.Migrations()
-	for _, migration := range migrations {
-		if migration.ID == "" {
-			return fmt.Errorf("migration ID cannot be empty")
-		}
-		if migration.Description == "" {
-			return fmt.Errorf("migration description cannot be empty")
-		}
-		if migration.SQL == "" {
-			return fmt.Errorf("migration SQL cannot be empty")
-		}
-	}
-	return nil
-}
