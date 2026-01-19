@@ -19,12 +19,9 @@ type TransactionManager interface {
 }
 
 // MigrationManager defines the migration management interface
+// Migration execution and status should be handled directly via dbkit
 type MigrationManager interface {
 	Migrations() []dbkit.Migration
-	RunMigrations(ctx context.Context) (*MigrationStatus, error)
-	GetMigrationStatus(ctx context.Context) (*MigrationStatus, error)
-	VerifyMigrationChecksums(ctx context.Context) (bool, error)
-	RollbackToMigration(ctx context.Context, targetMigrationID string) error
 }
 
 // HealthMonitor defines the health monitoring interface

@@ -1,9 +1,6 @@
 package rolekit
 
 import (
-	"context"
-	"fmt"
-
 	"github.com/fernandezvara/dbkit"
 )
 
@@ -18,6 +15,8 @@ func NewMigrationService(service *Service) *MigrationService {
 }
 
 // Migrations returns all database migrations required for RoleKit.
+// Use dbkit.Migrate(ctx, service.Migrations()) to run migrations.
+// Use dbkit.MigrationStatus(ctx, service.Migrations()) to check status.
 func (ms *MigrationService) Migrations() []dbkit.Migration {
 	return []dbkit.Migration{
 		{
@@ -69,94 +68,4 @@ func (ms *MigrationService) Migrations() []dbkit.Migration {
                 )`,
 		},
 	}
-}
-
-// RunMigrations runs all pending migrations and returns the status.
-func (ms *MigrationService) RunMigrations(ctx context.Context) (*MigrationStatus, error) {
-	if db, ok := ms.db.(*dbkit.DBKit); ok {
-		migrations := ms.Migrations()
-		_, err := db.Migrate(ctx, migrations)
-		if err != nil {
-			return nil, fmt.Errorf("migration failed: %w", err)
-		}
-		return ms.GetMigrationStatus(ctx)
-	}
-	return nil, fmt.Errorf("migration support requires a dbkit.DBKit instance")
-}
-
-// GetMigrationStatus returns the current status of all migrations.
-func (ms *MigrationService) GetMigrationStatus(ctx context.Context) (*MigrationStatus, error) {
-	if db, ok := ms.db.(*dbkit.DBKit); ok {
-		migrations := ms.Migrations()
-		statusEntries, err := db.MigrationStatus(ctx, migrations)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get migration status: %w", err)
-		}
-
-		total := len(statusEntries)
-		applied := 0
-		pending := 0
-
-		for _, entry := range statusEntries {
-			if entry.Applied {
-				applied++
-			} else {
-				pending++
-			}
-		}
-
-		return &MigrationStatus{
-			Total:      total,
-			Applied:    applied,
-			Pending:    pending,
-			Migrations: statusEntries,
-		}, nil
-	}
-
-	migrations := ms.Migrations()
-	return &MigrationStatus{
-		Total:      len(migrations),
-		Applied:    0,
-		Pending:    len(migrations),
-		Migrations: make([]dbkit.MigrationStatusEntry, 0),
-	}, nil
-}
-
-// VerifyMigrationChecksums verifies that all applied migrations have the correct checksums.
-func (ms *MigrationService) VerifyMigrationChecksums(ctx context.Context) (bool, error) {
-	status, err := ms.GetMigrationStatus(ctx)
-	if err != nil {
-		return false, fmt.Errorf("failed to get migration status for checksum verification: %w", err)
-	}
-
-	migrations := ms.Migrations()
-	sqlMap := make(map[string]string)
-	for _, migration := range migrations {
-		sqlMap[migration.ID] = migration.SQL
-	}
-
-	for _, entry := range status.Migrations {
-		if entry.Applied {
-			_, exists := sqlMap[entry.ID]
-			if !exists {
-				return false, fmt.Errorf("migration %s not found in migration definitions", entry.ID)
-			}
-		}
-	}
-
-	return true, nil
-}
-
-// RollbackToMigration rolls back to a specific migration.
-func (ms *MigrationService) RollbackToMigration(ctx context.Context, targetMigrationID string) error {
-	if _, ok := ms.db.(*dbkit.DBKit); ok {
-		migrations := ms.Migrations()
-		for _, migration := range migrations {
-			if migration.ID == targetMigrationID {
-				return fmt.Errorf("rollback not implemented for SQL migrations")
-			}
-		}
-		return fmt.Errorf("migration %s not found", targetMigrationID)
-	}
-	return fmt.Errorf("migration support requires a dbkit.DBKit instance")
 }

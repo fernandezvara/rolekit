@@ -4,22 +4,24 @@ import (
 	"testing"
 )
 
-// TestRunMigrations tests migration execution
-func TestRunMigrations(t *testing.T) {
-	t.Skip("Database setup not implemented in this test environment")
-}
+// TestMigrations tests that migrations are properly defined
+func TestMigrations(t *testing.T) {
+	service := &Service{}
+	migrations := service.Migrations()
 
-// TestGetMigrationStatus tests migration status tracking
-func TestGetMigrationStatus(t *testing.T) {
-	t.Skip("Database setup not implemented in this test environment")
-}
+	if len(migrations) == 0 {
+		t.Error("Expected at least one migration")
+	}
 
-// TestVerifyMigrationChecksums tests checksum verification
-func TestVerifyMigrationChecksums(t *testing.T) {
-	t.Skip("Database setup not implemented in this test environment")
-}
-
-// TestRollbackToMigration tests rollback functionality
-func TestRollbackToMigration(t *testing.T) {
-	t.Skip("Database setup not implemented in this test environment")
+	for _, m := range migrations {
+		if m.ID == "" {
+			t.Error("Migration ID should not be empty")
+		}
+		if m.Description == "" {
+			t.Error("Migration description should not be empty")
+		}
+		if m.SQL == "" {
+			t.Error("Migration SQL should not be empty")
+		}
+	}
 }

@@ -1377,11 +1377,11 @@ log.Printf("Bulk assignment of %d roles took %v", len(assignments), duration)
 
 ## Migration System
 
-RoleKit provides a robust migration system with status tracking, checksum verification, and rollback capabilities using dbkit's migration features.
+RoleKit provides database migrations that should be executed using dbkit's migration features. RoleKit only provides the migration definitions - all migration execution, status tracking, and rollback functionality is handled by dbkit.
 
 ### Running Migrations
 
-The recommended way to run migrations in production:
+Use dbkit to run RoleKit migrations:
 
 ```go
 import (
@@ -1397,253 +1397,33 @@ db, _ := dbkit.New(dbkit.Config{URL: "postgres://..."})
 registry := rolekit.NewRegistry()
 service := rolekit.NewService(registry, db)
 
-// Run all pending migrations
-status, err := service.RunMigrations(ctx)
+// Run all pending migrations using dbkit
+result, err := db.Migrate(ctx, service.Migrations())
 if err != nil {
     log.Fatalf("Migration failed: %v", err)
 }
 
-log.Printf("Migration status: %d applied, %d pending", status.Applied, status.Pending)
+log.Printf("Applied %d migrations", len(result.Applied))
 ```
 
-### Migration Status Tracking
+### Migration Status
 
-Get detailed information about migration status:
+Check migration status using dbkit:
 
 ```go
-// Get current migration status
-status, err := service.GetMigrationStatus(ctx)
+// Get migration status using dbkit
+status, err := db.MigrationStatus(ctx, service.Migrations())
 if err != nil {
     log.Printf("Failed to get migration status: %v", err)
     return
 }
 
-// Display migration status
-for _, migration := range status.Migrations {
-    status := "Applied"
-    if !migration.Applied {
-        status = "Pending"
+for _, entry := range status {
+    if entry.Applied {
+        log.Printf("Migration %s: Applied", entry.ID)
+    } else {
+        log.Printf("Migration %s: Pending", entry.ID)
     }
-    log.Printf("Migration %s: %s", migration.ID, status)
-}
-
-// Check if migrations are up to date
-if status.Pending == 0 {
-    log.Println("All migrations are up to date")
-} else {
-    log.Printf("There are %d pending migrations", status.Pending)
-}
-```
-
-### Migration Checksum Verification
-
-Verify migration integrity to detect unauthorized changes:
-
-```go
-// Verify all applied migrations have matching checksums
-valid, err := service.VerifyMigrationChecksums(ctx)
-if err != nil {
-    log.Printf("Checksum verification failed: %v", err)
-    return
-}
-
-if !valid {
-    log.Printf("WARNING: Migration checksums do not match - potential tampering detected")
-    // Take appropriate action (alert, rollback, etc.)
-} else {
-    log.Println("All migration checksums are valid")
-}
-```
-
-### Migration Rollback
-
-Rollback to a specific migration (requires manual rollback SQL):
-
-```go
-// Note: This requires manual rollback SQL to be defined
-err := service.RollbackToMigration(ctx, "rolekit-010")
-if err != nil {
-    log.Printf("Rollback failed: %v", err)
-    return
-}
-
-log.Printf("Successfully rolled back to migration rolekit-010")
-```
-
-### Migration Best Practices
-
-#### 1. Use Descriptive Migration IDs
-
-```go
-// Good: Descriptive and chronological
-{
-    ID:          "rolekit-001",
-    Description: "Create role_assignments table",
-    SQL:         `CREATE TABLE IF NOT EXISTS role_assignments (...)`,
-}
-
-// Bad: Non-descriptive
-{
-    ID:          "migration1",
-    Description: "Create table",
-    SQL:         `CREATE TABLE role_assignments (...)`,
-}
-```
-
-#### 2. Include IF EXISTS Statements
-
-```go
-// Good: Safe for repeated execution
-SQL: `CREATE TABLE IF NOT EXISTS role_assignments (...)`
-SQL: `CREATE INDEX IF NOT EXISTS idx_role_assignments_user ON role_assignments(user_id)`
-
-// Bad: May fail on repeated execution
-SQL: `CREATE TABLE role_assignments (...)`
-SQL: `CREATE INDEX idx_role_assignments_user ON role_assignments(user_id)`
-```
-
-#### 3. Use Transactions for Complex Migrations
-
-```go
-// Complex migration with multiple steps
-{
-    ID:          "rolekit-050",
-    Description: "Add audit logging and migrate existing data",
-    SQL: `
-        BEGIN;
-
-        -- Create audit log table
-        CREATE TABLE IF NOT EXISTS role_audit_log (...);
-
-        -- Create indexes
-        CREATE INDEX IF NOT EXISTS idx_role_audit_log_timestamp ON role_audit_log(timestamp DESC);
-
-        -- Migrate existing data
-        INSERT INTO role_audit_log (actor_id, action, target_user_id, role, scope_type, scope_id, timestamp)
-        SELECT user_id, 'initial_import', user_id, role, scope_type, scope_id, NOW()
-        FROM role_assignments;
-
-        COMMIT;
-    `,
-}
-```
-
-#### 4. Test Migrations in Development
-
-```go
-// Test migration before production deployment
-func TestMigration(t *testing.T) {
-    // Use test database
-    testDB, _ := dbkit.New(dbkit.Config{
-        URL: "postgres://localhost:5432/rolekit_test",
-    })
-
-    // Create service with test database
-    service := rolekit.NewService(registry, testDB)
-
-    // Run migrations
-    status, err := service.RunMigrations(context.Background())
-    if err != nil {
-        t.Fatalf("Migration failed: %v", err)
-    }
-
-    // Verify migrations applied
-    if status.Pending > 0 {
-        t.Errorf("Expected all migrations to be applied, but %d are pending", status.Pending)
-    }
-
-    // Verify checksums
-    valid, err := service.VerifyMigrationChecksums(context.Background())
-    if err != nil {
-        t.Fatalf("Checksum verification failed: %v", err)
-    }
-    if !valid {
-        t.Error("Migration checksums are invalid")
-    }
-}
-```
-
-### Migration Status Endpoints
-
-Create HTTP endpoints for monitoring migration status:
-
-```go
-// Migration status endpoint
-func migrationStatusHandler(w http.ResponseWriter, r *http.Request) {
-    ctx := r.Context()
-
-    status, err := service.GetMigrationStatus(ctx)
-    if err != nil {
-        w.WriteHeader(http.StatusInternalServerError)
-        json.NewEncoder(w).Encode(map[string]string{
-            "error": err.Error(),
-        })
-        return
-    }
-
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(status)
-}
-
-// Migration health endpoint
-func migrationHealthHandler(w http.ResponseWriter, r *http.Request) {
-    ctx := r.Context()
-
-    // Check if migrations are up to date
-    status, err := service.GetMigrationStatus(ctx)
-    if err != nil {
-        w.WriteHeader(http.StatusInternalServerError)
-        w.Write([]byte("unhealthy"))
-        return
-    }
-
-    // Verify checksums
-    valid, err := service.VerifyMigrationChecksums(ctx)
-    if err != nil || !valid {
-        w.WriteHeader(http.StatusServiceUnavailable)
-        w.Write([]byte("unhealthy"))
-        return
-    }
-
-    if status.Pending > 0 {
-        w.WriteHeader(http.StatusServiceUnavailable)
-        w.Write([]byte("pending"))
-        return
-    }
-
-    w.WriteHeader(http.StatusOK)
-    w.Write([]byte("healthy"))
-}
-```
-
-### Production Deployment Checklist
-
-Before deploying to production:
-
-```go
-func preDeploymentChecks(ctx context.Context, service *rolekit.Service) error {
-    // 1. Check current status
-    status, err := service.GetMigrationStatus(ctx)
-    if err != nil {
-        return fmt.Errorf("failed to get migration status: %w", err)
-    }
-
-    // 2. Verify checksums of applied migrations
-    if status.Applied > 0 {
-        valid, err := service.VerifyMigrationChecksums(ctx)
-        if err != nil {
-            return fmt.Errorf("checksum verification failed: %w", err)
-        }
-        if !valid {
-            return fmt.Errorf("migration checksums do not match - potential tampering")
-        }
-    }
-
-    // 3. Dry run migrations (if supported)
-    // This would be a custom implementation
-    log.Printf("Pre-deployment checks passed. Ready to apply %d migrations.", status.Pending)
-
-    return nil
 }
 ```
 

@@ -276,38 +276,6 @@ func (s *Service) Migrations() []dbkit.Migration {
 	return NewMigrationService(s).Migrations()
 }
 
-// ============================================================================
-// MIGRATION SYSTEM
-// ============================================================================
-
-// MigrationStatus represents the status of all migrations
-type MigrationStatus struct {
-	Total      int                          `json:"total"`
-	Applied    int                          `json:"applied"`
-	Pending    int                          `json:"pending"`
-	Migrations []dbkit.MigrationStatusEntry `json:"migrations"`
-}
-
-// RunMigrations runs all pending migrations and returns the status.
-func (s *Service) RunMigrations(ctx context.Context) (*MigrationStatus, error) {
-	return NewMigrationService(s).RunMigrations(ctx)
-}
-
-// GetMigrationStatus returns the current status of all migrations.
-func (s *Service) GetMigrationStatus(ctx context.Context) (*MigrationStatus, error) {
-	return NewMigrationService(s).GetMigrationStatus(ctx)
-}
-
-// VerifyMigrationChecksums verifies that all applied migrations have matching checksums.
-func (s *Service) VerifyMigrationChecksums(ctx context.Context) (bool, error) {
-	return NewMigrationService(s).VerifyMigrationChecksums(ctx)
-}
-
-// RollbackToMigration rolls back migrations to a specific migration ID.
-func (s *Service) RollbackToMigration(ctx context.Context, targetMigrationID string) error {
-	return NewMigrationService(s).RollbackToMigration(ctx, targetMigrationID)
-}
-
 // Health extension methods - delegate to HealthService
 
 // Health performs a comprehensive health check of the database connection.
