@@ -9,14 +9,14 @@ import (
 )
 
 // skipBenchmarkIfNoDatabase skips the benchmark if database is not available
-func skipBenchmarkIfNoDatabase(b *testing.B) (*Service, context.Context) {
+func SkipBenchmarkIfNoDatabase(b *testing.B) (*Service, context.Context) {
 	if !isDatabaseAvailable() {
 		b.Skip("Database not available, skipping benchmark")
 		return nil, nil
 	}
 
 	ctx := context.Background()
-	service, err := setupTestDatabase(ctx)
+	service, err := SetupTestDatabase(ctx)
 	if err != nil {
 		b.Fatalf("Failed to setup test database: %v", err)
 	}
@@ -30,7 +30,7 @@ func skipBenchmarkIfNoDatabase(b *testing.B) (*Service, context.Context) {
 
 // BenchmarkAssign benchmarks the Assign method
 func BenchmarkAssign(b *testing.B) {
-	service, ctx := skipBenchmarkIfNoDatabase(b)
+	service, ctx := SkipBenchmarkIfNoDatabase(b)
 	if service == nil {
 		return
 	}
@@ -57,7 +57,7 @@ func BenchmarkAssign(b *testing.B) {
 
 // BenchmarkAssignDirect benchmarks the AssignDirect method (bypasses checks)
 func BenchmarkAssignDirect(b *testing.B) {
-	service, ctx := skipBenchmarkIfNoDatabase(b)
+	service, ctx := SkipBenchmarkIfNoDatabase(b)
 	if service == nil {
 		return
 	}
@@ -81,7 +81,7 @@ func BenchmarkAssignDirect(b *testing.B) {
 
 // BenchmarkAssignMultiple benchmarks bulk assignment
 func BenchmarkAssignMultiple(b *testing.B) {
-	service, ctx := skipBenchmarkIfNoDatabase(b)
+	service, ctx := SkipBenchmarkIfNoDatabase(b)
 	if service == nil {
 		return
 	}
@@ -115,7 +115,7 @@ func BenchmarkAssignMultiple(b *testing.B) {
 
 // BenchmarkRevoke benchmarks the Revoke method
 func BenchmarkRevoke(b *testing.B) {
-	service, ctx := skipBenchmarkIfNoDatabase(b)
+	service, ctx := SkipBenchmarkIfNoDatabase(b)
 	if service == nil {
 		return
 	}
@@ -153,7 +153,7 @@ func BenchmarkRevoke(b *testing.B) {
 
 // BenchmarkCan benchmarks the Can method
 func BenchmarkCan(b *testing.B) {
-	service, ctx := skipBenchmarkIfNoDatabase(b)
+	service, ctx := SkipBenchmarkIfNoDatabase(b)
 	if service == nil {
 		return
 	}
@@ -179,7 +179,7 @@ func BenchmarkCan(b *testing.B) {
 
 // BenchmarkHasPermission benchmarks the HasPermission method
 func BenchmarkHasPermission(b *testing.B) {
-	service, ctx := skipBenchmarkIfNoDatabase(b)
+	service, ctx := SkipBenchmarkIfNoDatabase(b)
 	if service == nil {
 		return
 	}
@@ -205,7 +205,7 @@ func BenchmarkHasPermission(b *testing.B) {
 
 // BenchmarkCheckExists benchmarks the CheckExists method
 func BenchmarkCheckExists(b *testing.B) {
-	service, ctx := skipBenchmarkIfNoDatabase(b)
+	service, ctx := SkipBenchmarkIfNoDatabase(b)
 	if service == nil {
 		return
 	}
@@ -235,7 +235,7 @@ func BenchmarkCheckExists(b *testing.B) {
 
 // BenchmarkGetUserRoles benchmarks the GetUserRoles method
 func BenchmarkGetUserRoles(b *testing.B) {
-	service, ctx := skipBenchmarkIfNoDatabase(b)
+	service, ctx := SkipBenchmarkIfNoDatabase(b)
 	if service == nil {
 		return
 	}
@@ -267,7 +267,7 @@ func BenchmarkGetUserRoles(b *testing.B) {
 
 // BenchmarkCountRoles benchmarks the CountRoles method
 func BenchmarkCountRoles(b *testing.B) {
-	service, ctx := skipBenchmarkIfNoDatabase(b)
+	service, ctx := SkipBenchmarkIfNoDatabase(b)
 	if service == nil {
 		return
 	}
@@ -300,7 +300,7 @@ func BenchmarkCountRoles(b *testing.B) {
 
 // BenchmarkTransaction benchmarks transaction overhead
 func BenchmarkTransaction(b *testing.B) {
-	service, ctx := skipBenchmarkIfNoDatabase(b)
+	service, ctx := SkipBenchmarkIfNoDatabase(b)
 	if service == nil {
 		return
 	}
@@ -328,7 +328,7 @@ func BenchmarkTransaction(b *testing.B) {
 
 // BenchmarkTransactionVsNoTransaction compares transaction vs direct assignment
 func BenchmarkTransactionVsNoTransaction(b *testing.B) {
-	service, ctx := skipBenchmarkIfNoDatabase(b)
+	service, ctx := SkipBenchmarkIfNoDatabase(b)
 	if service == nil {
 		return
 	}
@@ -371,7 +371,7 @@ func BenchmarkTransactionVsNoTransaction(b *testing.B) {
 
 // BenchmarkConcurrentAssign benchmarks concurrent role assignments
 func BenchmarkConcurrentAssign(b *testing.B) {
-	service, ctx := skipBenchmarkIfNoDatabase(b)
+	service, ctx := SkipBenchmarkIfNoDatabase(b)
 	if service == nil {
 		return
 	}
@@ -401,7 +401,7 @@ func BenchmarkConcurrentAssign(b *testing.B) {
 
 // BenchmarkConcurrentCan benchmarks concurrent permission checks
 func BenchmarkConcurrentCan(b *testing.B) {
-	service, ctx := skipBenchmarkIfNoDatabase(b)
+	service, ctx := SkipBenchmarkIfNoDatabase(b)
 	if service == nil {
 		return
 	}
@@ -429,7 +429,7 @@ func BenchmarkConcurrentCan(b *testing.B) {
 
 // BenchmarkConcurrentMixedOperations benchmarks mixed read/write operations
 func BenchmarkConcurrentMixedOperations(b *testing.B) {
-	service, ctx := skipBenchmarkIfNoDatabase(b)
+	service, ctx := SkipBenchmarkIfNoDatabase(b)
 	if service == nil {
 		return
 	}
@@ -492,7 +492,7 @@ func BenchmarkConcurrentMixedOperations(b *testing.B) {
 
 // BenchmarkPing benchmarks the Ping method
 func BenchmarkPing(b *testing.B) {
-	service, ctx := skipBenchmarkIfNoDatabase(b)
+	service, ctx := SkipBenchmarkIfNoDatabase(b)
 	if service == nil {
 		return
 	}
@@ -508,7 +508,7 @@ func BenchmarkPing(b *testing.B) {
 
 // BenchmarkIsHealthy benchmarks the IsHealthy method
 func BenchmarkIsHealthy(b *testing.B) {
-	service, ctx := skipBenchmarkIfNoDatabase(b)
+	service, ctx := SkipBenchmarkIfNoDatabase(b)
 	if service == nil {
 		return
 	}
@@ -521,7 +521,7 @@ func BenchmarkIsHealthy(b *testing.B) {
 
 // BenchmarkGetPoolStats benchmarks the GetPoolStats method
 func BenchmarkGetPoolStats(b *testing.B) {
-	service, _ := skipBenchmarkIfNoDatabase(b)
+	service, _ := SkipBenchmarkIfNoDatabase(b)
 	if service == nil {
 		return
 	}
@@ -538,7 +538,7 @@ func BenchmarkGetPoolStats(b *testing.B) {
 
 // BenchmarkAssignAllocs measures memory allocations for Assign
 func BenchmarkAssignAllocs(b *testing.B) {
-	service, ctx := skipBenchmarkIfNoDatabase(b)
+	service, ctx := SkipBenchmarkIfNoDatabase(b)
 	if service == nil {
 		return
 	}
@@ -562,7 +562,7 @@ func BenchmarkAssignAllocs(b *testing.B) {
 
 // BenchmarkCanAllocs measures memory allocations for Can
 func BenchmarkCanAllocs(b *testing.B) {
-	service, ctx := skipBenchmarkIfNoDatabase(b)
+	service, ctx := SkipBenchmarkIfNoDatabase(b)
 	if service == nil {
 		return
 	}
@@ -589,7 +589,7 @@ func BenchmarkCanAllocs(b *testing.B) {
 
 // BenchmarkGetUserRolesAllocs measures memory allocations for GetUserRoles
 func BenchmarkGetUserRolesAllocs(b *testing.B) {
-	service, ctx := skipBenchmarkIfNoDatabase(b)
+	service, ctx := SkipBenchmarkIfNoDatabase(b)
 	if service == nil {
 		return
 	}

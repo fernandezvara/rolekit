@@ -10,12 +10,12 @@ import (
 
 // TestTransactionSupportIntegration tests transaction functionality with real database
 func TestTransactionSupportIntegration(t *testing.T) {
-	if !requireDatabase(t) {
+	if !RequireDatabase(t) {
 		return
 	}
 
 	ctx := context.Background()
-	service, err := setupTestDatabase(ctx)
+	service, err := SetupTestDatabase(ctx)
 	if err != nil {
 		t.Fatalf("Failed to setup test database: %v", err)
 	}
@@ -120,12 +120,12 @@ func TestTransactionSupportIntegration(t *testing.T) {
 
 // TestAssignDirectIntegration tests direct assignment without pre-checks
 func TestAssignDirectIntegration(t *testing.T) {
-	if !requireDatabase(t) {
+	if !RequireDatabase(t) {
 		return
 	}
 
 	ctx := context.Background()
-	service, err := setupTestDatabase(ctx)
+	service, err := SetupTestDatabase(ctx)
 	if err != nil {
 		t.Fatalf("Failed to setup test database: %v", err)
 	}
@@ -157,12 +157,12 @@ func TestAssignDirectIntegration(t *testing.T) {
 
 // TestAssignWithRetryIntegration tests retry logic for transient errors
 func TestAssignWithRetryIntegration(t *testing.T) {
-	if !requireDatabase(t) {
+	if !RequireDatabase(t) {
 		return
 	}
 
 	ctx := context.Background()
-	service, err := setupTestDatabase(ctx)
+	service, err := SetupTestDatabase(ctx)
 	if err != nil {
 		t.Fatalf("Failed to setup test database: %v", err)
 	}
@@ -193,12 +193,12 @@ func TestAssignWithRetryIntegration(t *testing.T) {
 
 // TestTransactionMetricsIntegration tests transaction monitoring
 func TestTransactionMetricsIntegration(t *testing.T) {
-	if !requireDatabase(t) {
+	if !RequireDatabase(t) {
 		return
 	}
 
 	ctx := context.Background()
-	service, err := setupTestDatabase(ctx)
+	service, err := SetupTestDatabase(ctx)
 	if err != nil {
 		t.Fatalf("Failed to setup test database: %v", err)
 	}

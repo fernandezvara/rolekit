@@ -9,12 +9,12 @@ import (
 
 // TestHealthMonitoringIntegration tests health monitoring with real database
 func TestHealthMonitoringIntegration(t *testing.T) {
-	if !requireDatabase(t) {
+	if !RequireDatabase(t) {
 		return
 	}
 
 	ctx := context.Background()
-	service, err := setupTestDatabase(ctx)
+	service, err := SetupTestDatabase(ctx)
 	if err != nil {
 		t.Fatalf("Failed to setup test database: %v", err)
 	}
@@ -56,12 +56,12 @@ func TestHealthMonitoringIntegration(t *testing.T) {
 
 // TestConnectionPoolIntegration tests connection pool management with real database
 func TestConnectionPoolIntegration(t *testing.T) {
-	if !requireDatabase(t) {
+	if !RequireDatabase(t) {
 		return
 	}
 
 	ctx := context.Background()
-	service, err := setupTestDatabase(ctx)
+	service, err := SetupTestDatabase(ctx)
 	if err != nil {
 		t.Fatalf("Failed to setup test database: %v", err)
 	}
@@ -121,12 +121,12 @@ func TestConnectionPoolIntegration(t *testing.T) {
 
 // TestMigrationIntegration tests migration system with real database
 func TestMigrationIntegration(t *testing.T) {
-	if !requireDatabase(t) {
+	if !RequireDatabase(t) {
 		return
 	}
 
 	ctx := context.Background()
-	service, err := setupTestDatabase(ctx)
+	service, err := SetupTestDatabase(ctx)
 	if err != nil {
 		t.Fatalf("Failed to setup test database: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestMigrationIntegration(t *testing.T) {
 	})
 
 	t.Run("Verify tables exist", func(t *testing.T) {
-		// Since migrations were run in setupTestDatabase, verify tables exist
+		// Since migrations were run in SetupTestDatabase, verify tables exist
 		db := service.db
 
 		// Check role_assignments table
@@ -188,12 +188,12 @@ func TestMigrationIntegration(t *testing.T) {
 
 // TestPerformanceIntegration tests performance-related functionality
 func TestPerformanceIntegration(t *testing.T) {
-	if !requireDatabase(t) {
+	if !RequireDatabase(t) {
 		return
 	}
 
 	ctx := context.Background()
-	service, err := setupTestDatabase(ctx)
+	service, err := SetupTestDatabase(ctx)
 	if err != nil {
 		t.Fatalf("Failed to setup test database: %v", err)
 	}

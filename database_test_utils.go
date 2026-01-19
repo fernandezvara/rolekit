@@ -16,12 +16,12 @@ type TestDataHelper struct {
 
 // NewTestDataHelper creates a new test data helper with database setup
 func NewTestDataHelper(t *testing.T) *TestDataHelper {
-	if !requireDatabase(t) {
+	if !RequireDatabase(t) {
 		return nil
 	}
 
 	ctx := context.Background()
-	service, err := setupTestDatabase(ctx)
+	service, err := SetupTestDatabase(ctx)
 	if err != nil {
 		t.Fatalf("Failed to setup test database: %v", err)
 	}

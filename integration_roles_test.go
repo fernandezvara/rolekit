@@ -7,12 +7,12 @@ import (
 
 // TestBasicRoleAssignment tests basic role assignment and checking with real database
 func TestBasicRoleAssignment(t *testing.T) {
-	if !requireDatabase(t) {
+	if !RequireDatabase(t) {
 		return
 	}
 
 	ctx := context.Background()
-	service, err := setupTestDatabase(ctx)
+	service, err := SetupTestDatabase(ctx)
 	if err != nil {
 		t.Fatalf("Failed to setup test database: %v", err)
 	}
@@ -130,12 +130,12 @@ func TestBasicRoleAssignment(t *testing.T) {
 
 // TestPermissionChecking tests permission checking with real database
 func TestPermissionChecking(t *testing.T) {
-	if !requireDatabase(t) {
+	if !RequireDatabase(t) {
 		return
 	}
 
 	ctx := context.Background()
-	service, err := setupTestDatabase(ctx)
+	service, err := SetupTestDatabase(ctx)
 	if err != nil {
 		t.Fatalf("Failed to setup test database: %v", err)
 	}
@@ -224,12 +224,12 @@ func TestPermissionChecking(t *testing.T) {
 
 // TestRoleRevocation tests role revocation with real database
 func TestRoleRevocation(t *testing.T) {
-	if !requireDatabase(t) {
+	if !RequireDatabase(t) {
 		return
 	}
 
 	ctx := context.Background()
-	service, err := setupTestDatabase(ctx)
+	service, err := SetupTestDatabase(ctx)
 	if err != nil {
 		t.Fatalf("Failed to setup test database: %v", err)
 	}
@@ -272,12 +272,12 @@ func TestRoleRevocation(t *testing.T) {
 
 // TestBulkOperations tests bulk role operations with real database
 func TestBulkOperations(t *testing.T) {
-	if !requireDatabase(t) {
+	if !RequireDatabase(t) {
 		return
 	}
 
 	ctx := context.Background()
-	service, err := setupTestDatabase(ctx)
+	service, err := SetupTestDatabase(ctx)
 	if err != nil {
 		t.Fatalf("Failed to setup test database: %v", err)
 	}

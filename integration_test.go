@@ -35,9 +35,9 @@ func isDatabaseAvailable() bool {
 	return err == nil
 }
 
-// requireDatabase skips the test if database is not available
-// Use this as: if !requireDatabase(t) { return }
-func requireDatabase(t interface{}) bool {
+// RequireDatabase skips the test if database is not available
+// Use this as: if !RequireDatabase(t) { return }
+func RequireDatabase(t interface{}) bool {
 	// Check if we have a testing.TB interface
 	type tb interface {
 		Skip(args ...interface{})
@@ -69,8 +69,8 @@ func getTestDatabaseURL() string {
 	return dbURL
 }
 
-// setupTestDatabase creates a test database connection and runs migrations
-func setupTestDatabase(ctx context.Context) (*Service, error) {
+// SetupTestDatabase creates a test database connection and runs migrations
+func SetupTestDatabase(ctx context.Context) (*Service, error) {
 	if !isDatabaseAvailable() {
 		return nil, fmt.Errorf("database not available - run 'make start' to start the test database")
 	}
