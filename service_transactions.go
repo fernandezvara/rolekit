@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/fernandezvara/dbkit"
@@ -152,4 +153,36 @@ func (ts *TransactionService) assignMultipleWithRetry(ctx context.Context, assig
 	}
 
 	return fmt.Errorf("failed after %d attempts: %w", maxAttempts, lastErr)
+}
+
+// isTransientTransactionError checks if an error is a transient transaction error
+func isTransientTransactionError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errStr := err.Error()
+
+	// Check for transaction state errors
+	if strings.Contains(errStr, "transaction has already been committed") ||
+		strings.Contains(errStr, "transaction has already been rolled back") ||
+		strings.Contains(errStr, "transaction is closed") {
+		return true
+	}
+
+	// Check for connection errors
+	if strings.Contains(errStr, "connection") ||
+		strings.Contains(errStr, "timeout") ||
+		strings.Contains(errStr, "network") ||
+		dbkit.IsConnection(err) {
+		return true
+	}
+
+	// Check for deadlock errors
+	if strings.Contains(errStr, "deadlock") ||
+		strings.Contains(errStr, "lock wait timeout") {
+		return true
+	}
+
+	return false
 }

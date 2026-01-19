@@ -5,10 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
-	"math"
-	"reflect"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -273,120 +269,11 @@ func (s *Service) ReadOnlyTransaction(ctx context.Context, fn func(ctx context.C
 	return s.TransactionWithOptions(ctx, dbkit.ReadOnlyTxOptions(), fn)
 }
 
-// Migrations returns all database migrations required for RoleKit.
-// These should be executed using db.Migrate(ctx, service.Migrations()).
-func (s *Service) Migrations() []dbkit.Migration {
-	return []dbkit.Migration{
-		// Table creation migrations
-		{
-			ID:          "rolekit-001",
-			Description: "Create role_assignments table",
-			SQL: `
-                CREATE TABLE IF NOT EXISTS role_assignments (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    user_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    scope_type TEXT NOT NULL,
-                    scope_id TEXT NOT NULL,
-                    parent_scope_type TEXT,
-                    parent_scope_id TEXT,
-                    created_at TIMESTAMPTZ DEFAULT current_timestamp,
-                    updated_at TIMESTAMPTZ DEFAULT current_timestamp
-                )`,
-		},
-		{
-			ID:          "rolekit-002",
-			Description: "Create role_audit_log table",
-			SQL: `
-                CREATE TABLE IF NOT EXISTS role_audit_log (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    timestamp TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-                    actor_id TEXT NOT NULL,
-                    action TEXT NOT NULL,
-                    target_user_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    scope_type TEXT NOT NULL,
-                    scope_id TEXT NOT NULL,
-                    actor_roles TEXT[],
-                    previous_roles TEXT[],
-                    new_roles TEXT[],
-                    ip_address TEXT,
-                    user_agent TEXT,
-                    request_id TEXT,
-                    metadata JSONB
-                )`,
-		},
-		{
-			ID:          "rolekit-003",
-			Description: "Create scope_hierarchy table",
-			SQL: `
-                CREATE TABLE IF NOT EXISTS scope_hierarchy (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    scope_type TEXT NOT NULL,
-                    scope_id TEXT NOT NULL,
-                    parent_scope_type TEXT NOT NULL,
-                    parent_scope_id TEXT NOT NULL,
-                    created_at TIMESTAMPTZ DEFAULT current_timestamp
-                )`,
-		},
+// Migration extension methods - delegate to MigrationService
 
-		// Index migrations
-		{
-			ID:          "rolekit-010",
-			Description: "Create idx_role_assignments_user",
-			SQL:         `CREATE INDEX IF NOT EXISTS idx_role_assignments_user ON role_assignments(user_id);`,
-		},
-		{
-			ID:          "rolekit-011",
-			Description: "Create idx_role_assignments_scope",
-			SQL:         `CREATE INDEX IF NOT EXISTS idx_role_assignments_scope ON role_assignments(scope_type, scope_id);`,
-		},
-		{
-			ID:          "rolekit-012",
-			Description: "Create idx_role_assignments_user_scope",
-			SQL:         `CREATE INDEX IF NOT EXISTS idx_role_assignments_user_scope ON role_assignments(user_id, scope_type, scope_id);`,
-		},
-		{
-			ID:          "rolekit-013",
-			Description: "Create idx_role_assignments_unique",
-			SQL:         `CREATE UNIQUE INDEX IF NOT EXISTS idx_role_assignments_unique ON role_assignments(user_id, role, scope_type, scope_id);`,
-		},
-		{
-			ID:          "rolekit-020",
-			Description: "Create idx_role_audit_log_actor",
-			SQL:         `CREATE INDEX IF NOT EXISTS idx_role_audit_log_actor ON role_audit_log(actor_id);`,
-		},
-		{
-			ID:          "rolekit-021",
-			Description: "Create idx_role_audit_log_target",
-			SQL:         `CREATE INDEX IF NOT EXISTS idx_role_audit_log_target ON role_audit_log(target_user_id);`,
-		},
-		{
-			ID:          "rolekit-022",
-			Description: "Create idx_role_audit_log_scope",
-			SQL:         `CREATE INDEX IF NOT EXISTS idx_role_audit_log_scope ON role_audit_log(scope_type, scope_id);`,
-		},
-		{
-			ID:          "rolekit-023",
-			Description: "Create idx_role_audit_log_timestamp",
-			SQL:         `CREATE INDEX IF NOT EXISTS idx_role_audit_log_timestamp ON role_audit_log(timestamp DESC);`,
-		},
-		{
-			ID:          "rolekit-030",
-			Description: "Create idx_scope_hierarchy_child",
-			SQL:         `CREATE INDEX IF NOT EXISTS idx_scope_hierarchy_child ON scope_hierarchy(scope_type, scope_id);`,
-		},
-		{
-			ID:          "rolekit-031",
-			Description: "Create idx_scope_hierarchy_parent",
-			SQL:         `CREATE INDEX IF NOT EXISTS idx_scope_hierarchy_parent ON scope_hierarchy(parent_scope_type, parent_scope_id);`,
-		},
-		{
-			ID:          "rolekit-032",
-			Description: "Create idx_scope_hierarchy_unique",
-			SQL:         `CREATE UNIQUE INDEX IF NOT EXISTS idx_scope_hierarchy_unique ON scope_hierarchy(scope_type, scope_id, parent_scope_type, parent_scope_id);`,
-		},
-	}
+// Migrations returns all database migrations required for RoleKit.
+func (s *Service) Migrations() []dbkit.Migration {
+	return NewMigrationService(s).Migrations()
 }
 
 // ============================================================================
@@ -401,318 +288,51 @@ type MigrationStatus struct {
 	Migrations []dbkit.MigrationStatusEntry `json:"migrations"`
 }
 
-// RunMigrations executes all pending migrations with status tracking and rollback support.
-// This is the recommended way to run migrations in production.
-//
-// Example:
-//
-//	status, err := service.RunMigrations(ctx)
-//	if err != nil {
-//	    log.Printf("Migration failed: %v", err)
-//	    return
-//	}
-//	log.Printf("Applied %d migrations, %d pending", status.Applied, status.Pending)
+// RunMigrations runs all pending migrations and returns the status.
 func (s *Service) RunMigrations(ctx context.Context) (*MigrationStatus, error) {
-	// Check if we have a DBKit instance
-	if db, ok := s.db.(*dbkit.DBKit); ok {
-		migrations := s.Migrations()
-
-		// Run migrations
-		result, err := db.Migrate(ctx, migrations)
-		if err != nil {
-			return nil, fmt.Errorf("migration failed: %w", err)
-		}
-
-		// Get updated status
-		updatedStatus, err := s.GetMigrationStatus(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get updated migration status: %w", err)
-		}
-
-		// Log migration results
-		if len(result.Applied) > 0 {
-			log.Printf("Successfully applied %d migrations", len(result.Applied))
-		}
-
-		return updatedStatus, nil
-	}
-
-	// If we don't have a DBKit instance, we can't run migrations
-	return nil, fmt.Errorf("migration system requires a dbkit.DBKit instance")
+	return NewMigrationService(s).RunMigrations(ctx)
 }
 
 // GetMigrationStatus returns the current status of all migrations.
-// This includes applied, pending, and failed migrations with checksum verification.
-//
-// Example:
-//
-//	status, err := service.GetMigrationStatus(ctx)
-//	if err != nil {
-//	    log.Printf("Failed to get migration status: %v", err)
-//	    return
-//	}
-//	for _, migration := range status.Migrations {
-//	    log.Printf("Migration %s: %s", migration.ID, migration.Status)
-//	}
 func (s *Service) GetMigrationStatus(ctx context.Context) (*MigrationStatus, error) {
-	// Check if we have a DBKit instance
-	if db, ok := s.db.(*dbkit.DBKit); ok {
-		migrations := s.Migrations()
-
-		// Get migration status from dbkit
-		statusEntries, err := db.MigrationStatus(ctx, migrations)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get migration status: %w", err)
-		}
-
-		// Calculate totals
-		total := len(statusEntries)
-		applied := 0
-		pending := 0
-
-		for _, entry := range statusEntries {
-			if entry.Applied {
-				applied++
-			} else {
-				pending++
-			}
-		}
-
-		return &MigrationStatus{
-			Total:      total,
-			Applied:    applied,
-			Pending:    pending,
-			Migrations: statusEntries,
-		}, nil
-	}
-
-	// If we don't have a DBKit instance, return basic status
-	migrations := s.Migrations()
-	return &MigrationStatus{
-		Total:      len(migrations),
-		Applied:    0,
-		Pending:    len(migrations),
-		Migrations: make([]dbkit.MigrationStatusEntry, 0),
-	}, nil
+	return NewMigrationService(s).GetMigrationStatus(ctx)
 }
 
 // VerifyMigrationChecksums verifies that all applied migrations have matching checksums.
-// This ensures migration integrity and detects any unauthorized changes.
-//
-// Example:
-//
-//	valid, err := service.VerifyMigrationChecksums(ctx)
-//	if err != nil {
-//	    log.Printf("Checksum verification failed: %v", err)
-//	    return
-//	}
-//	if !valid {
-//	    log.Printf("Migration checksums do not match - potential tampering detected")
-//	}
 func (s *Service) VerifyMigrationChecksums(ctx context.Context) (bool, error) {
-	status, err := s.GetMigrationStatus(ctx)
-	if err != nil {
-		return false, fmt.Errorf("failed to get migration status for checksum verification: %w", err)
-	}
-
-	// Check all applied migrations for checksum mismatches
-	for _, migration := range status.Migrations {
-		if migration.Applied && !migration.ChecksumMatch {
-			return false, fmt.Errorf("migration %s checksum mismatch detected", migration.ID)
-		}
-	}
-
-	return true, nil
+	return NewMigrationService(s).VerifyMigrationChecksums(ctx)
 }
 
 // RollbackToMigration rolls back migrations to a specific migration ID.
-// This is useful for reverting to a known good state.
-// Note: This requires manual rollback SQL to be defined in the migrations.
-//
-// Example:
-//
-//	err := service.RollbackToMigration(ctx, "rolekit-010")
-//	if err != nil {
-//	    log.Printf("Rollback failed: %v", err)
-//	    return
-//	}
 func (s *Service) RollbackToMigration(ctx context.Context, targetMigrationID string) error {
-	// Check if we have a DBKit instance
-	if _, ok := s.db.(*dbkit.DBKit); ok {
-		migrations := s.Migrations()
-
-		// Find the target migration
-		targetIndex := -1
-		for i, migration := range migrations {
-			if migration.ID == targetMigrationID {
-				targetIndex = i
-				break
-			}
-		}
-
-		if targetIndex == -1 {
-			return fmt.Errorf("target migration %s not found", targetMigrationID)
-		}
-
-		// Get current status
-		status, err := s.GetMigrationStatus(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to get migration status: %w", err)
-		}
-
-		// Find migrations to rollback (in reverse order)
-		// Note: This requires manual rollback SQL to be defined
-		var migrationsToRollback []dbkit.Migration
-		for i := len(status.Migrations) - 1; i >= 0; i-- {
-			migration := status.Migrations[i]
-			if migration.Applied && migration.ID > targetMigrationID {
-				// Find the corresponding migration definition
-				for _, def := range migrations {
-					if def.ID == migration.ID {
-						// For now, we'll skip rollback as it requires manual SQL
-						// In a real implementation, you'd have rollback SQL defined
-						log.Printf("Migration %s would need manual rollback SQL", def.ID)
-						break
-					}
-				}
-			}
-		}
-
-		if len(migrationsToRollback) == 0 {
-			return fmt.Errorf("no migrations to rollback to %s", targetMigrationID)
-		}
-
-		// For now, return an error indicating manual rollback is needed
-		return fmt.Errorf("manual rollback required for migration %s - please define rollback SQL", targetMigrationID)
-	}
-
-	return fmt.Errorf("migration rollback requires a dbkit.DBKit instance")
+	return NewMigrationService(s).RollbackToMigration(ctx, targetMigrationID)
 }
 
 // ValidateMigrations checks that all migrations are properly formatted and valid.
-// This is useful for pre-deployment validation.
-//
-// Example:
-//
-//	err := service.ValidateMigrations()
-//	if err != nil {
-//	    log.Printf("Migration validation failed: %v", err)
-//	    return
-//	}
-//	log.Printf("All migrations are valid")
 func (s *Service) ValidateMigrations() error {
-	migrations := s.Migrations()
-
-	for _, migration := range migrations {
-		// Validate migration ID
-		if migration.ID == "" {
-			return fmt.Errorf("migration ID cannot be empty")
-		}
-
-		// Validate description
-		if migration.Description == "" {
-			return fmt.Errorf("migration %s: description cannot be empty", migration.ID)
-		}
-
-		// Validate SQL
-		if migration.SQL == "" {
-			return fmt.Errorf("migration %s: SQL cannot be empty", migration.ID)
-		}
-
-		// Check for basic SQL injection patterns (basic validation)
-		if strings.Contains(strings.ToLower(migration.SQL), "drop table") &&
-			!strings.Contains(strings.ToLower(migration.SQL), "if exists") {
-			return fmt.Errorf("migration %s: DROP TABLE without IF EXISTS is not allowed", migration.ID)
-		}
-	}
-
-	return nil
+	return NewMigrationService(s).ValidateMigrations()
 }
 
-// Health performs a comprehensive health check of the database connection.
-// Returns detailed status including latency, connection pool statistics, and error information.
-//
-// Example:
-//
-//	status := service.Health(ctx)
-//	if status.Healthy {
-//	    log.Printf("Database is healthy, latency: %v", status.Latency)
-//	} else {
-//	    log.Printf("Database is unhealthy: %s", status.Error)
-//	    log.Printf("Pool stats: InUse=%d, Idle=%d", status.PoolStats.InUse, status.PoolStats.Idle)
-//	}
-func (s *Service) Health(ctx context.Context) dbkit.HealthStatus {
-	// Check if we have a DBKit instance
-	if db, ok := s.db.(*dbkit.DBKit); ok {
-		return db.Health(ctx)
-	}
+// Health extension methods - delegate to HealthService
 
-	// If we're in a transaction or have a different type, do a basic ping
-	return dbkit.HealthStatus{
-		Healthy: s.IsHealthy(ctx),
-		Error:   "Limited health check - not a DBKit instance",
-	}
+// Health performs a comprehensive health check of the database connection.
+func (s *Service) Health(ctx context.Context) dbkit.HealthStatus {
+	return NewHealthService(s).Health(ctx)
 }
 
 // IsHealthy performs a simple health check of the database connection.
-// Returns true if the database is reachable, false otherwise.
-//
-// This is a lightweight check suitable for frequent monitoring.
-// For detailed health information, use Health().
-//
-// Example:
-//
-//	if !service.IsHealthy(ctx) {
-//	    log.Printf("Database is not healthy")
-//	    // Handle unhealthy state
-//	}
 func (s *Service) IsHealthy(ctx context.Context) bool {
-	// Check if we have a DBKit instance
-	if db, ok := s.db.(*dbkit.DBKit); ok {
-		return db.IsHealthy(ctx)
-	}
-
-	// If we're in a transaction or have a different type, try to ping
-	// Use a simple query to test connectivity
-	var count int
-	err := s.db.NewSelect().Model((*struct{})(nil)).ColumnExpr("1").Limit(1).Scan(ctx, &count)
-	return err == nil
+	return NewHealthService(s).IsHealthy(ctx)
 }
 
 // GetPoolStats returns connection pool statistics for monitoring.
-// Returns zero values if the database instance doesn't support pool statistics.
-//
-// Example:
-//
-//	stats := service.GetPoolStats()
-//	log.Printf("Connections: InUse=%d, Idle=%d, Max=%d",
-//	    stats.InUse, stats.Idle, stats.MaxOpen)
 func (s *Service) GetPoolStats() dbkit.PoolStats {
-	// Check if we have a DBKit instance
-	if db, ok := s.db.(*dbkit.DBKit); ok {
-		sqlStats := db.Stats()
-		return dbkit.PoolStatsFromSQL(sqlStats)
-	}
-
-	// Return zero values for non-DBKit instances
-	return dbkit.PoolStats{}
+	return NewHealthService(s).GetPoolStats()
 }
 
 // Ping performs a basic connectivity test to the database.
-// Returns an error if the database is not reachable.
-//
-// This is useful for health check endpoints that need to verify database connectivity.
-//
-// Example:
-//
-//	if err := service.Ping(ctx); err != nil {
-//	    log.Printf("Database ping failed: %v", err)
-//	    return err
-//	}
 func (s *Service) Ping(ctx context.Context) error {
-	// Use a simple query to test connectivity
-	var result int
-	return s.db.NewSelect().Model((*struct{})(nil)).ColumnExpr("1").Limit(1).Scan(ctx, &result)
+	return NewHealthService(s).Ping(ctx)
 }
 
 // RoleRevocation represents a role revocation operation for bulk operations.
@@ -922,132 +542,26 @@ func LowResourcePoolConfig() PoolConfig {
 	}
 }
 
+// Pool extension methods - delegate to PoolService
+
 // ConfigureConnectionPool updates the database connection pool settings.
-// This method allows dynamic adjustment of connection pool parameters.
-//
-// Example:
-//
-//	config := rolekit.HighPerformancePoolConfig()
-//	err := service.ConfigureConnectionPool(config)
-//	if err != nil {
-//	    log.Printf("Failed to configure connection pool: %v", err)
-//	}
 func (s *Service) ConfigureConnectionPool(config PoolConfig) error {
-	// Check if we have a DBKit instance with access to the underlying database
-	if db, ok := s.db.(*dbkit.DBKit); ok {
-		bunDB := db.Bun()
-		if bunDB == nil {
-			return fmt.Errorf("database instance not available")
-		}
-
-		// Set connection pool parameters directly on the bunDB instance
-		bunDB.SetMaxOpenConns(config.MaxOpenConnections)
-		bunDB.SetMaxIdleConns(config.MaxIdleConnections)
-		bunDB.SetConnMaxLifetime(config.ConnectionMaxLifetime)
-		bunDB.SetConnMaxIdleTime(config.ConnectionMaxIdleTime)
-
-		log.Printf("Connection pool configured: MaxOpen=%d, MaxIdle=%d, MaxLifetime=%v, MaxIdleTime=%v",
-			config.MaxOpenConnections, config.MaxIdleConnections,
-			config.ConnectionMaxLifetime, config.ConnectionMaxIdleTime)
-
-		return nil
-	}
-
-	return fmt.Errorf("connection pool configuration requires a dbkit.DBKit instance")
+	return NewPoolService(s).ConfigureConnectionPool(config)
 }
 
 // GetConnectionPoolConfig returns the current connection pool configuration.
-// This is useful for monitoring and debugging connection pool settings.
-//
-// Example:
-//
-//	config, err := service.GetConnectionPoolConfig()
-//	if err != nil {
-//	    log.Printf("Failed to get connection pool config: %v", err)
-//	    return
-//	}
-//	log.Printf("Current pool config: %+v", config)
 func (s *Service) GetConnectionPoolConfig() (*PoolConfig, error) {
-	// Check if we have a DBKit instance with access to the underlying database
-	if db, ok := s.db.(*dbkit.DBKit); ok {
-		bunDB := db.Bun()
-		if bunDB == nil {
-			return nil, fmt.Errorf("database instance not available")
-		}
-
-		return &PoolConfig{
-			MaxOpenConnections:    bunDB.Stats().MaxOpenConnections,
-			MaxIdleConnections:    bunDB.Stats().Idle, // Use Idle field instead
-			ConnectionMaxLifetime: 0,                  // Not available in sql.DBStats
-			ConnectionMaxIdleTime: 0,                  // Not available in sql.DBStats
-		}, nil
-	}
-
-	return nil, fmt.Errorf("connection pool configuration requires a dbkit.DBKit instance")
+	return NewPoolService(s).GetConnectionPoolConfig()
 }
 
 // OptimizeConnectionPool automatically adjusts connection pool settings based on current usage.
-// This method analyzes current pool statistics and adjusts parameters for optimal performance.
-//
-// Example:
-//
-//	err := service.OptimizeConnectionPool()
-//	if err != nil {
-//	    log.Printf("Failed to optimize connection pool: %v", err)
-//	}
 func (s *Service) OptimizeConnectionPool() error {
-	stats := s.GetPoolStats()
-
-	// Get current configuration
-	currentConfig, err := s.GetConnectionPoolConfig()
-	if err != nil {
-		return fmt.Errorf("failed to get current config: %w", err)
-	}
-
-	// Analyze usage patterns and adjust accordingly
-	newConfig := *currentConfig
-
-	// If wait count is high, increase max open connections
-	if stats.WaitCount > 5 {
-		newConfig.MaxOpenConnections = min(currentConfig.MaxOpenConnections*2, 200)
-		log.Printf("High wait count detected (%d), increasing MaxOpenConnections to %d",
-			stats.WaitCount, newConfig.MaxOpenConnections)
-	}
-
-	// If idle connections are very high, reduce max idle connections
-	if stats.Idle > stats.InUse*3 && currentConfig.MaxIdleConnections > 5 {
-		newConfig.MaxIdleConnections = max(currentConfig.MaxIdleConnections/2, 5)
-		log.Printf("High idle connections detected (%d vs %d in use), reducing MaxIdleConnections to %d",
-			stats.Idle, stats.InUse, newConfig.MaxIdleConnections)
-	}
-
-	// If wait duration is high, increase pool size
-	if stats.WaitDuration > 100*time.Millisecond {
-		newConfig.MaxOpenConnections = min(currentConfig.MaxOpenConnections+10, 150)
-		log.Printf("High wait duration detected (%v), increasing MaxOpenConnections to %d",
-			stats.WaitDuration, newConfig.MaxOpenConnections)
-	}
-
-	// Apply the new configuration if it changed
-	if !reflect.DeepEqual(currentConfig, &newConfig) {
-		return s.ConfigureConnectionPool(newConfig)
-	}
-
-	log.Printf("Connection pool is already optimized")
-	return nil
+	return NewPoolService(s).OptimizeConnectionPool()
 }
 
 // ResetConnectionPool resets the connection pool to default settings.
-// This is useful for troubleshooting or when you want to start fresh.
-//
-// Example:
-//
-//	err := service.ResetConnectionPool()
-//	if err != nil {
-//	    log.Printf("Failed to reset connection pool: %v", err)
-//	}
 func (s *Service) ResetConnectionPool() error {
-	return s.ConfigureConnectionPool(DefaultPoolConfig())
+	return NewPoolService(s).ResetConnectionPool()
 }
 
 // ============================================================================
@@ -1535,171 +1049,21 @@ func (s *Service) logAudit(ctx context.Context, entry *AuditEntry) error {
 	return dbkit.WithErr1(err, "LogAudit").Err()
 }
 
+// Transaction extension methods - delegate to TransactionService
+
 // AssignDirect assigns a role to a user without pre-checks for better performance.
-// This method bypasses GetUserRoles calls and handles duplicate key constraints gracefully.
 func (s *Service) AssignDirect(ctx context.Context, userID, role, scopeType, scopeID string) error {
-	// Validate role exists for scope
-	if err := s.registry.ValidateRole(role, scopeType); err != nil {
-		return err
-	}
-
-	// Check if actor can assign this role
-	actorID := GetActorID(ctx)
-	if actorID == "" {
-		return NewError(ErrNoActorID, "actor ID required for role assignment")
-	}
-
-	// Create assignment
-	assignment := &RoleAssignment{
-		UserID:    userID,
-		Role:      role,
-		ScopeType: scopeType,
-		ScopeID:   scopeID,
-	}
-
-	// Direct assignment with conflict resolution
-	result, err := s.db.NewInsert().
-		Model(assignment).
-		On("CONFLICT (user_id, role, scope_type, scope_id) DO NOTHING").
-		Exec(ctx)
-
-	err = dbkit.WithErr(result, err, "CreateRoleAssignmentDirect").Err()
-	if err != nil {
-		return NewError(ErrDatabaseError, "failed to create role assignment").
-			WithScope(scopeType, scopeID).
-			WithRole(role).
-			WithUser(userID)
-	}
-
-	// Check if assignment was actually made (not a duplicate)
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if rowsAffected == 0 {
-		// Role already exists - this is not an error for AssignDirect
-		return NewError(ErrRoleAlreadyAssigned, "user already has this role").
-			WithScope(scopeType, scopeID).
-			WithRole(role).
-			WithUser(userID)
-	}
-
-	// Create audit log entry (simplified)
-	audit := GetAuditContext(ctx)
-	entry := &AuditEntry{
-		ActorID:      actorID,
-		Action:       AuditActionAssigned,
-		TargetUserID: userID,
-		Role:         role,
-		ScopeType:    scopeType,
-		ScopeID:      scopeID,
-		IPAddress:    audit.IPAddress,
-		UserAgent:    audit.UserAgent,
-		RequestID:    audit.RequestID,
-	}
-
-	_ = s.logAudit(ctx, entry) // Log error but don't fail the assignment
-
-	return nil
+	return NewTransactionService(s).AssignDirect(ctx, userID, role, scopeType, scopeID)
 }
 
 // AssignWithRetry assigns a role to a user with automatic retry for transient errors.
 func (s *Service) AssignWithRetry(ctx context.Context, userID, role, scopeType, scopeID string) error {
-	return s.assignWithRetry(ctx, userID, role, scopeType, scopeID, 3)
-}
-
-// assignWithRetry is the internal implementation of retry logic with configurable attempts.
-func (s *Service) assignWithRetry(ctx context.Context, userID, role, scopeType, scopeID string, maxAttempts int) error {
-	var lastErr error
-
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		err := s.Assign(ctx, userID, role, scopeType, scopeID)
-		if err == nil {
-			return nil
-		}
-
-		lastErr = err
-
-		// Check if this is a transient error that can be retried
-		if !isTransientTransactionError(err) {
-			// Not a transient error, return immediately
-			return err
-		}
-
-		// For transient errors, wait with exponential backoff
-		if attempt < maxAttempts-1 {
-			backoffDuration := time.Duration(math.Pow(2, float64(attempt))) * time.Second
-			time.Sleep(backoffDuration)
-		}
-	}
-
-	return fmt.Errorf("failed after %d attempts: %w", maxAttempts, lastErr)
+	return NewTransactionService(s).AssignWithRetry(ctx, userID, role, scopeType, scopeID)
 }
 
 // AssignMultipleWithRetry assigns multiple roles with automatic retry for transient errors.
 func (s *Service) AssignMultipleWithRetry(ctx context.Context, assignments []RoleAssignment) error {
-	return s.assignMultipleWithRetry(ctx, assignments, 3)
-}
-
-// assignMultipleWithRetry is the internal implementation of retry logic for bulk operations.
-func (s *Service) assignMultipleWithRetry(ctx context.Context, assignments []RoleAssignment, maxAttempts int) error {
-	var lastErr error
-
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		err := s.AssignMultiple(ctx, assignments)
-		if err == nil {
-			return nil
-		}
-
-		lastErr = err
-
-		// Check if this is a transient error that can be retried
-		if !isTransientTransactionError(err) {
-			// Not a transient error, return immediately
-			return err
-		}
-
-		// For transient errors, wait with exponential backoff
-		if attempt < maxAttempts-1 {
-			backoffDuration := time.Duration(math.Pow(2, float64(attempt))) * time.Second
-			time.Sleep(backoffDuration)
-		}
-	}
-
-	return fmt.Errorf("failed after %d attempts: %w", maxAttempts, lastErr)
-}
-
-// isTransientTransactionError checks if an error is a transient transaction error
-func isTransientTransactionError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	errStr := err.Error()
-
-	// Check for transaction state errors
-	if strings.Contains(errStr, "transaction has already been committed") ||
-		strings.Contains(errStr, "transaction has already been rolled back") ||
-		strings.Contains(errStr, "transaction is closed") {
-		return true
-	}
-
-	// Check for connection errors
-	if strings.Contains(errStr, "connection") ||
-		strings.Contains(errStr, "timeout") ||
-		strings.Contains(errStr, "network") ||
-		dbkit.IsConnection(err) {
-		return true
-	}
-
-	// Check for deadlock errors
-	if strings.Contains(errStr, "deadlock") ||
-		strings.Contains(errStr, "lock wait timeout") {
-		return true
-	}
-
-	return false
+	return NewTransactionService(s).AssignMultipleWithRetry(ctx, assignments)
 }
 
 // GetTransactionMetrics returns the current transaction performance metrics.
