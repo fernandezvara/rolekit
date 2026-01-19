@@ -6,7 +6,6 @@ require (
 	github.com/fernandezvara/dbkit v0.0.0-20260119113233-d28b15247586
 	github.com/stretchr/testify v1.11.1
 	github.com/uptrace/bun v1.2.16
-	github.com/uptrace/bun/driver/pgdriver v1.2.16
 )
 
 require (
@@ -26,6 +25,7 @@ require (
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
 	github.com/tmthrgd/go-hex v0.0.0-20190904060850-447a3041c3bc // indirect
 	github.com/uptrace/bun/dialect/pgdialect v1.2.16 // indirect
+	github.com/uptrace/bun/driver/pgdriver v1.2.16 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	go.opentelemetry.io/otel v1.39.0 // indirect
